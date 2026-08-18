@@ -1,9 +1,3 @@
-.variants {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
 .variant {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);

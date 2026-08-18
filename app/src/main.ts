@@ -125,7 +125,7 @@ async function performGracefulShutdown(): Promise<void> {
 }
 
 function registerIpcHandlers(): void {
-  ipcMain.handle(IPC_GET_CONFIG, (): SwitchboardConfig => {
+  ipcMain.handle(IPC_GET_CONFIG, async (): Promise<SwitchboardConfig> => {
     if (!serverInfo) {
       // Fail loudly rather than returning a partial/placeholder config: the
       // renderer should never silently render with no server to talk to.
@@ -134,7 +134,7 @@ function registerIpcHandlers(): void {
     return {
       baseUrl: `http://127.0.0.1:${serverInfo.port}`,
       operatorToken: serverInfo.operatorToken,
-      advertisedUrls: buildAdvertisedUrls(serverInfo.port),
+      advertisedUrls: await buildAdvertisedUrls(serverInfo.port),
     };
   });
 }

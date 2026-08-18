@@ -11,9 +11,10 @@ export interface SwitchboardConfig {
   /** The ephemeral, per-boot operator token minted by the server. */
   operatorToken: string;
   /**
-   * http://<hostname-or-LAN-IP>:<port> for every non-internal address this
-   * machine has, so bootstrap-block text pasted into an agent session can
-   * pick whichever URL is reachable from that agent's machine.
+   * Ranked `http://<ip>:<port>` routes to this switchboard, literal IPs
+   * only. The FIRST entry is the primary outbound IPv4 — the one the
+   * console's join block shows; the rest (other interfaces, loopback last)
+   * sit behind an address picker for machines that can't reach the primary.
    */
   advertisedUrls: string[];
 }

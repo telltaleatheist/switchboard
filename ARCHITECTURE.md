@@ -218,8 +218,14 @@ window.switchboard = {
 }
 ```
 
-  `advertisedUrls` = `os.hostname()` + non-internal IPv4s from
-  `os.networkInterfaces()`, each as `http://<x>:<port>`.
+  `advertisedUrls` = ranked literal-IP routes, `http://<ip>:<port>` each.
+  **No hostname variant** — the Monitor tool's WS guard rejects hostnames
+  that resolve to private ranges while accepting literal IPs, so a hostname
+  is strictly worse than any IP. Order is the contract: [0] is the primary
+  outbound IPv4 (default-route interface, found with a connected UDP socket
+  — nothing is sent), then remaining RFC1918 addresses, then other
+  non-internal ones (CGNAT/tailnet etc.), loopback last. The console shows
+  ONLY [0] in the join block; the rest live behind an address picker.
 - Verification bar: `tsc` clean. Do NOT launch the GUI (integration pass
   does that); a `npm run typecheck` script is enough.
 
@@ -234,8 +240,9 @@ window.switchboard = {
   a plain browser for dev) fall back to `localStorage`
   (`switchboard.baseUrl`, `switchboard.operatorToken`) and show a small
   banner saying so. Missing config = visible error state, never silent.
-- Panes (SPEC §11): Agents (the UNIVERSAL join block — one per advertised
-  URL, copy button, rotate-join-key button with confirm; roster with
+- Panes (SPEC §11): Agents (ONE universal join block showing the primary
+  advertised URL, copy button, a quiet alternate-address picker when more
+  routes exist, rotate-join-key button with confirm; roster with
   connected status, rename [inline edit], reissue, delete; **no manual
   registration form** — agents enroll themselves via the join flow),
   Channels (create/patch via agent multi-select; close; idle timers), Live

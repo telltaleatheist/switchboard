@@ -31,6 +31,8 @@ export class AgentsPage implements OnInit, OnDestroy {
   protected readonly joinKey = signal<string | null>(null);
   protected readonly joinKeyError = signal<string | null>(null);
   protected readonly rotating = signal(false);
+  /** Address override for the join block; null = the primary (first) URL. */
+  protected readonly selectedUrl = signal<string | null>(null);
 
   protected readonly issuedToken = signal<IssuedToken | null>(null);
   protected readonly reissuingName = signal<string | null>(null);
@@ -56,6 +58,13 @@ export class AgentsPage implements OnInit, OnDestroy {
   protected get advertisedUrls(): string[] {
     const state = this.configService.state();
     return state.status === 'ready' ? state.config.advertisedUrls : [];
+  }
+
+  /** The URL shown in the join block: the picker's choice, else the primary. */
+  protected effectiveUrl(): string {
+    const chosen = this.selectedUrl();
+    if (chosen !== null && this.advertisedUrls.includes(chosen)) return chosen;
+    return this.advertisedUrls[0] ?? '';
   }
 
   protected async refresh(): Promise<void> {

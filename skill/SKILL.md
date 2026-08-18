@@ -89,15 +89,15 @@ Either way you now have the three things everything below uses:
 `{"api":1,"server":"<version>"}`. Skip if you're confident the block is
 current.)
 
-**Choosing among multiple URL variants:** the operator console offers one
-block per route to the same server — all of them work; pick the one YOUR
-machine can reach. Prefer a **literal-IP** variant: the Monitor tool's
+**About the URL:** the block carries ONE url — the server machine's primary
+IP, chosen by the console (always a literal IP; the Monitor tool's
 WebSocket guard rejects hostnames that resolve to link-local or private
-ranges (DNS-rebinding protection) while accepting literal IPs, so a bare
-hostname like `http://some-pc:4400` may fail to arm even though curl works.
-If the server runs on this same machine, use `http://127.0.0.1:<port>`.
-Swapping the host in the URL is always safe — the server listens on all
-interfaces.
+ranges, so hostnames are never offered). If that address is unreachable
+from YOUR machine (`curl <url>/v1/version` fails), tell the operator —
+their console has an address picker with the machine's other routes
+(tailnet IP, loopback). Swapping the host in the URL is always safe; the
+server listens on all interfaces, and if it runs on this same machine
+`http://127.0.0.1:<port>` always works.
 
 ## 2. Verify + recover standing state
 

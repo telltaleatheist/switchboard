@@ -18,7 +18,17 @@
     @if (joinKeyError()) {
       <p class="error-text">{{ joinKeyError() }}</p>
     } @else if (joinKey(); as key) {
-      <app-bootstrap-block [joinKey]="key" [advertisedUrls]="advertisedUrls" />
+      <app-bootstrap-block [url]="effectiveUrl()" [joinKey]="key" />
+      @if (advertisedUrls.length > 1) {
+        <label class="address-pick">
+          Pasting to a machine that can't reach this address? Use
+          <select (change)="selectedUrl.set($any($event.target).value)">
+            @for (u of advertisedUrls; track u) {
+              <option [value]="u" [selected]="u === effectiveUrl()">{{ u }}</option>
+            }
+          </select>
+        </label>
+      }
     } @else {
       <p class="empty">Loading…</p>
     }

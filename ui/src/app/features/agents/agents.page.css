@@ -1,3 +1,21 @@
+/* The alternate-address picker under the join block: one quiet inline row,
+   not a form — the default (primary IP) should be the only thing most eyes
+   ever land on. */
+.address-pick {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--text-faint);
+}
+
+.address-pick select {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  padding: 0.2rem 0.4rem;
+}
+
 .issued-card {
   border-color: var(--warning);
 }

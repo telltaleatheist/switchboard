@@ -1,13 +1,9 @@
-<div class="variants">
-  @for (variant of variants(); track variant.url) {
-    <div class="variant">
-      <div class="variant-head">
-        <span class="variant-url">{{ variant.url || '(no advertised URL)' }}</span>
-        <button type="button" class="copy-btn" (click)="copy(variant)">
-          {{ variant.copied ? 'Copied' : 'Copy' }}
-        </button>
-      </div>
-      <pre class="block">{{ variant.text }}</pre>
-    </div>
-  }
+<div class="variant">
+  <div class="variant-head">
+    <span class="variant-url">{{ url() || '(no advertised URL)' }}</span>
+    <button type="button" class="copy-btn" (click)="copy()">
+      {{ copied() ? 'Copied' : 'Copy' }}
+    </button>
+  </div>
+  <pre class="block">{{ text() }}</pre>
 </div>
