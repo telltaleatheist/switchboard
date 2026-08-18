@@ -174,6 +174,24 @@ export class ChannelsPage implements OnInit, OnDestroy {
     }
   }
 
+  protected async removeMember(channelName: string, agentName: string): Promise<void> {
+    const ok = await this.confirmService.ask({
+      title: `Remove "${agentName}" from "${channelName}"?`,
+      message:
+        'The agent is told it was removed and loses access to the channel; the channel stays open for everyone else. ' +
+        'You can patch it back in later with Add members.',
+      confirmLabel: 'Remove',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await this.api.removeChannelMember(channelName, agentName);
+      await this.refresh();
+    } catch (err) {
+      this.error.set(err instanceof ApiError ? err.message : `Failed to remove ${agentName} from "${channelName}".`);
+    }
+  }
+
   protected async closeChannel(name: string): Promise<void> {
     const ok = await this.confirmService.ask({
       title: `Close channel "${name}"?`,

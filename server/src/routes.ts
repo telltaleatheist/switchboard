@@ -417,9 +417,37 @@ const deleteAgent = (ctx: Ctx, req: Req): Result => {
   // is gone afterwards) can still be closed.
   const agent = ctx.store.findAgentByName(name);
   if (!agent) throw notFound(`unknown agent '${name}'`);
-  const { mode } = ctx.store.deleteAgent(name);
+  const { mode, removedFrom } = ctx.store.deleteAgent(name);
   ctx.hub.closeAgentSockets(agent.id, 'agent-deleted');
-  return { status: 200, body: { name, deleted: mode } };
+  return {
+    status: 200,
+    body: { name, deleted: mode, removed_from: removedFrom.map((c) => c.name) },
+  };
+};
+
+/**
+ * Unpatch one agent from an open channel. The removed agent gets a persisted
+ * `removed` control frame (its cue to drop that channel's watcher) and its
+ * channel sockets are closed; the remaining members are NOT woken — the
+ * members list already carries the fact, mirroring how joins work.
+ */
+const deleteChannelMember = (ctx: Ctx, req: Req): Result => {
+  assertNoUnknownQuery(req.query, []);
+  requireOperator(req.principal);
+  parseBody(req, []);
+  const channelName = req.params['name'] as string;
+  const agentName = req.params['agent'] as string;
+  const channel = ctx.store.resolveChannel(channelName);
+  if (!channel) throw notFound(`unknown channel '${channelName}'`);
+  if (channel.status !== 'open') throw conflict(`channel '${channelName}' is closed`);
+  const agent = ctx.store.findAgentByName(agentName);
+  if (!agent) throw notFound(`unknown agent '${agentName}'`);
+  if (!ctx.store.removeChannelMember(channel.id, agent.id)) {
+    throw badRequest(`agent '${agentName}' is not a member of channel '${channelName}'`);
+  }
+  emitLineEvent(ctx, agent.id, { type: 'removed', channel: channel.name, reason: 'removed-by-operator' });
+  ctx.hub.closeAgentChannelSockets(agent.id, channel.id, 'removed-from-channel');
+  return { status: 200, body: { name: channel.name, removed: agent.name } };
 };
 
 const getAgents = (ctx: Ctx, req: Req): Result => {
@@ -610,6 +638,7 @@ export const ROUTES: readonly Route[] = [
   { method: 'GET', pattern: '/v1/agents', auth: 'operator', handler: getAgents },
   { method: 'POST', pattern: '/v1/channels', auth: 'operator', handler: postChannels },
   { method: 'POST', pattern: '/v1/channels/{name}/members', auth: 'operator', handler: postChannelMembers },
+  { method: 'DELETE', pattern: '/v1/channels/{name}/members/{agent}', auth: 'operator', handler: deleteChannelMember },
   { method: 'GET', pattern: '/v1/channels', auth: 'operator', handler: getChannels },
   { method: 'GET', pattern: '/v1/patch-requests', auth: 'operator', handler: getPatchRequests },
   { method: 'POST', pattern: '/v1/patch-requests/{id}/approve', auth: 'operator', handler: postPatchApprove },

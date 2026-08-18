@@ -63,6 +63,21 @@
   gap: 0.25rem;
 }
 
+.member-badge .kick {
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  padding: 0 0.1rem;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.member-badge .kick:hover {
+  color: var(--danger);
+  background: transparent;
+}
+
 textarea {
   resize: vertical;
   font-family: inherit;

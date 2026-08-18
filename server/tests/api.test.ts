@@ -640,6 +640,55 @@ test('adding members to an open channel invites only the newcomers', async () =>
   }
 });
 
+test('unpatching a member removes it, notifies only it, and closes its sockets', async () => {
+  await createChannel('shrinking', ['alpha', 'beta']);
+  const betaMe = await call<{ line_seq: number }>(h, 'GET', '/v1/agents/me', { token: betaToken });
+  const betaLine = await FrameLog.open(h, `/v1/agents/me/line?token=${betaToken}&since=${betaMe.json.line_seq}`);
+  const betaChan = await FrameLog.open(h, `/v1/channels/shrinking/ws?token=${betaToken}&since=0`);
+  try {
+    const res = await call<{ name: string; removed: string }>(h, 'DELETE', '/v1/channels/shrinking/members/beta', {
+      token: h.operatorToken,
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.json.removed, 'beta');
+
+    // beta hears it on its control line (skip the invite that armed first)...
+    let frame = await betaLine.next();
+    if (frame.type === 'invite') frame = await betaLine.next();
+    assert.equal(frame.type, 'removed');
+    assert.equal(frame.channel, 'shrinking');
+    assert.equal(frame.reason, 'removed-by-operator');
+
+    // ...its channel socket closes, and its access is gone.
+    const closeInfo = await betaChan.closeInfo;
+    assert.equal(closeInfo.code, 1000);
+    assert.equal(closeInfo.reason, 'removed-from-channel');
+    const sendAfter = await call(h, 'POST', '/v1/channels/shrinking/messages', {
+      token: betaToken,
+      body: { subject: 's', body: 'b' },
+    });
+    assert.equal(sendAfter.status, 403);
+
+    // The channel lives on for the rest.
+    const info = await call<{ status: string; members: string[] }>(h, 'GET', '/v1/channels/shrinking', {
+      token: h.operatorToken,
+    });
+    assert.equal(info.json.status, 'open');
+    assert.deepEqual(info.json.members, ['alpha']);
+
+    // Guards: not-a-member 400, unknown agent 404, agent auth 403.
+    const again = await call(h, 'DELETE', '/v1/channels/shrinking/members/beta', { token: h.operatorToken });
+    assert.equal(again.status, 400);
+    const ghost = await call(h, 'DELETE', '/v1/channels/shrinking/members/nobody', { token: h.operatorToken });
+    assert.equal(ghost.status, 404);
+    const agentAuth = await call(h, 'DELETE', '/v1/channels/shrinking/members/alpha', { token: alphaToken });
+    assert.equal(agentAuth.status, 403);
+  } finally {
+    betaLine.close();
+    betaChan.close();
+  }
+});
+
 test('the operator speaks as the reserved sender "operator"', async () => {
   await createChannel('op-voice', ['alpha', 'beta']);
   const alphaWs = await FrameLog.open(h, `/v1/channels/op-voice/ws?token=${alphaToken}&since=0`);
@@ -1011,7 +1060,9 @@ test('agent deletion: hard when unused, soft when history references it', async 
   assert.equal(reused.status, 201, 'a hard-deleted name must be reusable');
   await call(h, 'DELETE', '/v1/agents/doomed', { token: h.operatorToken });
 
-  // Agent with message history: refuse while in an open channel, then soft-delete.
+  // Agent with message history in an OPEN channel: the delete cascades — the
+  // membership is dropped, the channel stays open for everyone else, and the
+  // agent tombstones because history references it.
   const phoenix = await call<{ name: string; token: string }>(h, 'POST', '/v1/agents', {
     token: h.operatorToken,
     body: { name: 'phoenix' },
@@ -1022,18 +1073,24 @@ test('agent deletion: hard when unused, soft when history references it', async 
     body: { name: 'deletion-test', members: ['phoenix', 'alpha'] },
   });
   assert.equal(chan.status, 201);
-  const blocked = await call(h, 'DELETE', '/v1/agents/phoenix', { token: h.operatorToken });
-  assert.equal(blocked.status, 409, 'deleting a member of an open channel must be refused');
 
   const sent = await call(h, 'POST', '/v1/channels/deletion-test/messages', {
     token: phoenix.json.token,
     body: { subject: 'last words', body: 'history must keep resolving me' },
   });
   assert.equal(sent.status, 201);
+
+  const soft = await call<{ deleted: string; removed_from: string[] }>(h, 'DELETE', '/v1/agents/phoenix', {
+    token: h.operatorToken,
+  });
+  assert.deepEqual(soft.json.removed_from, ['deletion-test'], 'delete must report the open channels it left');
+  const afterInfo = await call<{ status: string; members: string[] }>(h, 'GET', '/v1/channels/deletion-test', {
+    token: h.operatorToken,
+  });
+  assert.equal(afterInfo.json.status, 'open', 'the channel must survive the deletion');
+  assert.deepEqual(afterInfo.json.members, ['alpha'], 'only the deleted agent leaves');
   const closed = await call(h, 'POST', '/v1/channels/deletion-test/close', { token: h.operatorToken });
   assert.equal(closed.status, 200);
-
-  const soft = await call<{ deleted: string }>(h, 'DELETE', '/v1/agents/phoenix', { token: h.operatorToken });
   assert.equal(soft.status, 200);
   assert.equal(soft.json.deleted, 'soft');
   const listed2 = await call<{ agents: any[] }>(h, 'GET', '/v1/agents', { token: h.operatorToken });

@@ -277,6 +277,8 @@ POST /v1/agents/{name}/rename             → rename; pushes a renamed control f
 POST /v1/channels                         → create channel + send invitations
 POST /v1/channels/{name}/members          → patch more agents into an open
                                             channel (invite only the newcomers)
+DELETE /v1/channels/{name}/members/{agent} → unpatch one agent (a `removed`
+                                            frame tells it; nobody else woken)
 GET  /v1/channels?status=…                → list
 GET  /v1/agents                           → list, with connection status
 GET  /v1/archives · GET /v1/archives/{id} → browse/export transcripts

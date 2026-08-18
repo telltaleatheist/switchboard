@@ -71,18 +71,34 @@
 
     @if (selectedChannel()) {
       <form class="compose" (ngSubmit)="sendMessage()">
-        <textarea
-          rows="2"
-          placeholder="Message everyone as operator — first line becomes the subject (Ctrl+Enter to send)"
-          [ngModel]="composeText()"
-          (ngModelChange)="composeText.set($event)"
-          name="composeText"
-          [disabled]="sending()"
-          (keydown.control.enter)="sendMessage()"
-        ></textarea>
-        <button type="submit" class="primary" [disabled]="sending() || !composeText().trim()">
-          {{ sending() ? 'Sending…' : 'Send' }}
-        </button>
+        <label class="compose-to">
+          To
+          <select
+            [ngModel]="recipient()"
+            (ngModelChange)="recipient.set($event)"
+            name="composeTo"
+            [disabled]="sending()"
+          >
+            <option value="">everyone</option>
+            @for (m of channelMembers(); track m) {
+              <option [value]="m">{{ m }} (only)</option>
+            }
+          </select>
+        </label>
+        <div class="compose-row">
+          <textarea
+            rows="2"
+            placeholder="Message as operator — first line becomes the subject (Ctrl+Enter to send)"
+            [ngModel]="composeText()"
+            (ngModelChange)="composeText.set($event)"
+            name="composeText"
+            [disabled]="sending()"
+            (keydown.control.enter)="sendMessage()"
+          ></textarea>
+          <button type="submit" class="primary" [disabled]="sending() || !composeText().trim()">
+            {{ sending() ? 'Sending…' : 'Send' }}
+          </button>
+        </div>
       </form>
       @if (sendError()) {
         <p class="error-text compose-error">{{ sendError() }}</p>

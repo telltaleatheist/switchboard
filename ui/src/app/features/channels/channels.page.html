@@ -89,7 +89,15 @@
               <td>
                 <span class="member-list">
                   @for (m of ch.members; track m) {
-                    <span class="badge">{{ m }}</span>
+                    <span class="badge member-badge">
+                      {{ m }}
+                      <button
+                        type="button"
+                        class="kick"
+                        title="Remove {{ m }} from {{ ch.name }}"
+                        (click)="removeMember(ch.name, m)"
+                      >×</button>
+                    </span>
                   }
                 </span>
               </td>

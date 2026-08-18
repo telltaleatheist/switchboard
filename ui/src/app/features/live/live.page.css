@@ -89,18 +89,42 @@
 /* Operator compose bar, pinned under the feed. */
 .compose {
   display: flex;
-  align-items: flex-end;
-  gap: 0.5rem;
+  flex-direction: column;
+  gap: 0.4rem;
   padding: 0.6rem 0.75rem;
   border-top: 1px solid var(--border);
   background: var(--bg-elevated);
 }
 
-.compose textarea {
+.compose-to {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--text-faint);
+}
+
+.compose-to select {
+  font-size: 0.78rem;
+  padding: 0.2rem 0.4rem;
+}
+
+/* Button stretches to match the textarea's height, resize included. */
+.compose-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
+.compose-row textarea {
   flex: 1;
   resize: vertical;
   font-family: inherit;
   font-size: 0.86rem;
+}
+
+.compose-row button {
+  align-self: stretch;
 }
 
 .compose-error {

@@ -149,6 +149,19 @@ export class Hub {
     this.releaseWaiters(channelId);
   }
 
+  /** Close one agent's sockets on ONE channel (used when it is unpatched). */
+  closeAgentChannelSockets(agentId: number, channelId: number, reason: string): void {
+    for (const conn of [...this.channelConns]) {
+      if (conn.agentId !== agentId || conn.channelId !== channelId) continue;
+      try {
+        conn.socket.close(1000, reason);
+      } catch {
+        conn.socket.terminate();
+      }
+      this.channelConns.delete(conn);
+    }
+  }
+
   /** Close every socket a (just-deleted) agent holds — line and channel. */
   closeAgentSockets(agentId: number, reason: string): void {
     this.lastLinePoll.delete(agentId);

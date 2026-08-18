@@ -303,39 +303,46 @@ export class Store {
   }
 
   /**
-   * Remove an agent. Refused (409) while the agent is a member of any OPEN
-   * channel. If nothing references the row (never sent a message), it is
+   * Remove an agent. Open-channel memberships are dropped automatically in
+   * the same transaction — the operator's intent is unambiguous, and forcing
+   * a channel closure to delete one dead member punished the members still
+   * using it. If nothing references the row (never sent a message), it is
    * hard-deleted and the name is freed; otherwise it becomes a tombstone —
    * invisible everywhere, token revoked, name retired — so message history
-   * and transcripts keep resolving the sender. Returns which happened.
+   * and transcripts keep resolving the sender. Returns which happened, plus
+   * the open channels it was removed from (the route closes those sockets).
    */
-  deleteAgent(name: string): { mode: 'hard' | 'soft' } {
-    const del = this.db.transaction((): { mode: 'hard' | 'soft' } => {
+  deleteAgent(name: string): { mode: 'hard' | 'soft'; removedFrom: ChannelRow[] } {
+    const del = this.db.transaction((): { mode: 'hard' | 'soft'; removedFrom: ChannelRow[] } => {
       const agent = this.findAgentByName(name);
       if (!agent) throw notFound(`unknown agent '${name}'`);
-      const open = this.db
-        .prepare(
-          "SELECT c.name FROM channels c JOIN channel_members m ON m.channel_id = c.id WHERE m.agent_id = ? AND c.status = 'open'",
-        )
-        .all(agent.id) as { name: string }[];
-      if (open.length > 0) {
-        throw conflict(
-          `agent '${name}' is a member of open channel(s) ${open.map((c) => `'${c.name}'`).join(', ')} — close them first`,
-        );
+      const removedFrom = this.openChannelsForAgent(agent.id);
+      for (const channel of removedFrom) {
+        this.db
+          .prepare('DELETE FROM channel_members WHERE channel_id = ? AND agent_id = ?')
+          .run(channel.id, agent.id);
       }
       const sent = this.db.prepare('SELECT COUNT(*) AS n FROM messages WHERE sender_id = ?').get(agent.id) as {
         n: number;
       };
       if (sent.n === 0) {
         this.db.prepare('DELETE FROM agents WHERE id = ?').run(agent.id);
-        return { mode: 'hard' };
+        return { mode: 'hard', removedFrom };
       }
       this.db
         .prepare("UPDATE agents SET deleted_at = ?, token_hash = '' WHERE id = ?")
         .run(nowIso(), agent.id);
-      return { mode: 'soft' };
+      return { mode: 'soft', removedFrom };
     });
     return del();
+  }
+
+  /** Drop one agent's membership in one channel. True if a row was removed. */
+  removeChannelMember(channelId: number, agentId: number): boolean {
+    const info = this.db
+      .prepare('DELETE FROM channel_members WHERE channel_id = ? AND agent_id = ?')
+      .run(channelId, agentId);
+    return info.changes > 0;
   }
 
   requireAgentByName(name: string): AgentRow {

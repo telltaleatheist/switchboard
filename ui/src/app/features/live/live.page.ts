@@ -28,6 +28,8 @@ export class LivePage implements OnInit, OnDestroy {
   protected readonly shutdownNotice = signal(false);
 
   protected readonly composeText = signal('');
+  /** '' = everyone; otherwise a member name for an addressed (to:) send. */
+  protected readonly recipient = signal('');
   protected readonly sending = signal(false);
   protected readonly sendError = signal<string | null>(null);
 
@@ -58,7 +60,15 @@ export class LivePage implements OnInit, OnDestroy {
   protected selectChannel(name: string): void {
     if (!name) return;
     this.selectedChannel.set(name);
+    this.recipient.set('');
     this.connect(name);
+  }
+
+  /** Members of the currently selected channel, for the recipient picker. */
+  protected channelMembers(): string[] {
+    const name = this.selectedChannel();
+    if (!name) return [];
+    return this.channels().find((c) => c.name === name)?.members ?? [];
   }
 
   protected reconnect(): void {
@@ -141,7 +151,8 @@ export class LivePage implements OnInit, OnDestroy {
     this.sending.set(true);
     this.sendError.set(null);
     try {
-      await this.api.sendChannelMessage(name, subject, text);
+      const to = this.recipient();
+      await this.api.sendChannelMessage(name, subject, text, to ? [to] : undefined);
       this.composeText.set('');
     } catch (err) {
       this.sendError.set(err instanceof ApiError ? err.message : 'Failed to send the message.');

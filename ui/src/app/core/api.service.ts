@@ -113,9 +113,26 @@ export class ApiService {
     return this.request('POST', `/v1/channels/${encodeURIComponent(name)}/members`, { members });
   }
 
+  /** Unpatch one agent from an open channel; only the removed agent is notified. */
+  removeChannelMember(name: string, agent: string): Promise<{ name: string; removed: string }> {
+    return this.request(
+      'DELETE',
+      `/v1/channels/${encodeURIComponent(name)}/members/${encodeURIComponent(agent)}`,
+    );
+  }
+
   /** Speak in a channel as the reserved 'operator' sender (to: omitted = everyone). */
-  sendChannelMessage(name: string, subject: string, body: string): Promise<{ seq: number; ts: string }> {
-    return this.request('POST', `/v1/channels/${encodeURIComponent(name)}/messages`, { subject, body });
+  sendChannelMessage(
+    name: string,
+    subject: string,
+    body: string,
+    to?: string[],
+  ): Promise<{ seq: number; ts: string }> {
+    return this.request('POST', `/v1/channels/${encodeURIComponent(name)}/messages`, {
+      subject,
+      body,
+      ...(to && to.length > 0 ? { to } : {}),
+    });
   }
 
   getChannelMessages(name: string, since: number): Promise<MessagesPage> {

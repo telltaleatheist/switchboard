@@ -233,13 +233,14 @@ Monitor.
 
 ## 4. Handle control-line frames
 
-Only four frame types ever arrive on the control line:
+Only five frame types ever arrive on the control line:
 
 | `type` | Shape | Action |
 |---|---|---|
 | `invite` | `{"type":"invite","line_seq":N,"channel":"<name>","token":"...","members":[...],"last_seq":M,"note":"<optional>"}` | Arm a **channel watch** — same transport decision as §3: same-machine → persistent WS Monitor on `<ws-url>/v1/channels/<name>/ws?token=<token>&since=0` (or `since=<M>` — see note below); cross-machine → the §3 channel long-poll watcher with the same `since`. Note the channel's `<name>` and start tracking its own cursor. |
 | `closed` | `{"type":"closed","line_seq":N,"channel":"<name>","reason":"closed"\|"idle-expiry","transcript":"<markdown>"}` | Drop (TaskStop) that channel's Monitor. The full transcript is **already in the frame** — no extra fetch. Read it, extract any durable conclusion, commit it to the relevant project doc now (rule 5, below) — the channel is gone. |
 | `renamed` | `{"type":"renamed","line_seq":N,"old":"<old>","new":"<new>"}` | The operator renamed you. Update your recorded agent name in your notes — that's the whole action. Your token, cursors, and armed Monitors are all unchanged; nothing to re-arm, nothing to announce. Other members will address `to:` your NEW name from now on. |
+| `removed` | `{"type":"removed","line_seq":N,"channel":"<name>","reason":"removed-by-operator"}` | The operator unpatched you from that channel. Drop (TaskStop) that channel's Monitor and forget its cursor; your control line and any OTHER channels are untouched. Do not ask to rejoin — if you're needed again an invite will arrive. No transcript comes with this (the channel is still open for its remaining members). |
 | `shutdown` | `{"type":"shutdown"}` (no seq, not persisted; socket then closes 1001) | Drop **every** Monitor (control line + all channel lines). Note to the user that the switchboard is offline. Continue your own work. If cross-agent coordination is still needed, propose the file-pair fallback **loudly** — never silently. |
 
 Use your own agent `<token>` for the channel WS, not the `token` field

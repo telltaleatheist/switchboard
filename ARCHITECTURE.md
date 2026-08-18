@@ -124,6 +124,7 @@ Operator-token endpoints (agent tokens get 403):
 | `GET /v1/agents` | → `{agents:[{name, created_at, connected:bool, channels:[names]}]}` |
 | `POST /v1/channels` | `{name, members:[names], note?}` → 201 `{name, invited:[names]}` (pushes invites) |
 | `POST /v1/channels/{name}/members` | `{members:[names]}` → 200 `{name, added:[names], already:[names]}` — patch agents into an OPEN channel (409 closed). Newcomers get an ordinary invite frame with the channel's current `last_seq` (late-joiner replay rule); existing members are NOT notified (the members list already carries it — no wasted wake-ups); already-members land in `already`, not an error |
+| `DELETE /v1/channels/{name}/members/{agent}` | → 200 `{name, removed}` — unpatch one agent from an OPEN channel (409 closed; 400 not-a-member; 404 unknown). The removed agent gets a persisted `removed` control frame and its channel sockets close (1000, "removed-from-channel"); remaining members are NOT woken, mirroring joins. Agent deletion (`DELETE /v1/agents/{name}`) cascades through this automatically — open memberships are dropped in the delete transaction (no frames; the agent is gone) and the response carries `removed_from:[channel names]`. A channel may be left with zero members; it stays open until closed or idle-expired |
 | `GET /v1/channels?status=open\|closed` | → `{channels:[...]}` (each item: same shape as `GET /v1/channels/{name}`, incl. `last_message_at`) |
 | `GET /v1/patch-requests?status=pending` | → `{requests:[{id, requester, with:[names], purpose, status, created_at}]}` (`requester` = name resolved from requester_id, mirroring how `sender` resolves on messages) |
 | `POST /v1/patch-requests/{id}/approve` | `{name?}` → creates channel + invites (requester + with) |
@@ -159,6 +160,9 @@ Rules (fail loudly, per SPEC §2):
   - `{"type":"renamed","line_seq":N,"old":str,"new":str}` (line only,
     persisted like invite/closed so it replays) — the agent updates its own
     notes; its token and id are unchanged, nothing needs re-arming.
+  - `{"type":"removed","line_seq":N,"channel":str,"reason":"removed-by-operator"}`
+    (line only, persisted) — the agent was unpatched from a channel: drop
+    that channel's watcher, keep everything else.
   - `{"type":"shutdown"}` (both, not persisted, no seq) then close 1001.
 - **Push filtering is server-side**: a channel-WS member receives a message
   frame only if `to` is null or includes its name. **The sender is never
