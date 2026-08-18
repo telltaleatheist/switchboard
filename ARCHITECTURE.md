@@ -142,8 +142,12 @@ Rules (fail loudly, per SPEC §2):
   - `{"type":"closed","line_seq":N,"channel":name,"reason":"closed|idle-expiry","transcript":str}` (line only)
   - `{"type":"shutdown"}` (both, not persisted, no seq) then close 1001.
 - **Push filtering is server-side**: a channel-WS member receives a message
-  frame only if `to` is null or includes its name. History reads without
-  `for=me` return everything (party-line pull).
+  frame only if `to` is null or includes its name. **The sender is never
+  live-pushed its own message** — the send's 201 `{seq,ts}` is its
+  confirmation, and an echo would cost the sender a model turn for nothing.
+  Replay (`since=N` on connect) and history reads DO include the agent's own
+  messages: catch-up after a restart or compaction may need them back.
+  History reads without `for=me` return everything (party-line pull).
 - Channel invite tokens: **v1 simplification — the invite's `token` field
   repeats the agent's own token**; membership (tracked in
   `channel_members`) is what grants channel access. The field exists so the

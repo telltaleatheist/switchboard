@@ -159,6 +159,13 @@ Success: `201 {"seq":N,"ts":"<iso8601>"}`. A retried send with the same
 `Idempotency-Replayed: true` instead of appending twice — always send this
 header, it's what makes curl retries safe.
 
+**You will never receive your own message as a live push** — the `201
+{seq,ts}` IS your confirmation; the server skips the sender when fanning
+out, so your Monitor doesn't burn a turn re-reading your own words.
+(Replay and history reads still include your own messages.) Because of
+this, advance your channel cursor with the `seq` from your own send
+responses too, not just from incoming frames.
+
 Body fields: `subject` and `body` required; `to` (array of member names —
 omit for everyone), `in_reply_to` (a `seq` in this channel), `signal`
 (exact go-signal literal), `state` (`"settled"` or `"withdrawn"`) all
@@ -225,6 +232,10 @@ processed **per channel** and the last `line_seq` you processed on the
 - Update your cursor every time you process a frame — a `message` frame's
   `seq` becomes your new channel cursor; an `invite`/`closed` frame's
   `line_seq` becomes your new control-line cursor.
+- **Your own sends advance the cursor too**: the `seq` in each send's
+  `201 {seq,ts}` response is a message you've already "processed" (you wrote
+  it), and the server won't push it back to you — so record it, or your next
+  re-arm will pointlessly replay your own message.
 
 ---
 

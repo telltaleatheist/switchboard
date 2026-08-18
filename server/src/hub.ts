@@ -65,11 +65,19 @@ export class Hub {
     return to.includes(agentName);
   }
 
-  /** Fan a new message out to the channel's sockets, push-filtered. */
+  /**
+   * Fan a new message out to the channel's sockets, push-filtered. The sender's
+   * own sockets are skipped: their POST already confirmed the append with
+   * {seq,ts}, so echoing the message back would cost them a model turn for
+   * nothing. Live push only — WS replay and history reads still include the
+   * sender's own messages, because catch-up after a restart or compaction may
+   * genuinely need them back. Operator sockets (agentName null) are unfiltered.
+   */
   broadcastMessage(channelId: number, channelName: string, message: WireMessage): void {
     const frame = JSON.stringify({ type: 'message', channel: channelName, message });
     for (const conn of this.channelConns) {
       if (conn.channelId !== channelId) continue;
+      if (conn.agentName !== null && conn.agentName === message.sender) continue;
       if (!Hub.addressedTo(message.to, conn.agentName)) continue;
       send(conn.socket, frame);
     }

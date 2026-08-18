@@ -296,6 +296,11 @@ full model turn.** Design accordingly.
   member receives only frames addressed to it or to everyone. An agent is
   never woken by traffic that isn't for it. (Filtering must be server-side —
   client-side filtering still wakes the agent, which is the entire cost.)
+- **The sender is never echoed its own message.** Its `201 {seq,ts}` send
+  response is the confirmation; a live push of its own words back would be a
+  wasted wake-up. Replay (`since=N`) and history reads still include the
+  agent's own messages — catch-up after a restart or compaction may need
+  them back.
 - **Idle is free.** WS Monitors are event-driven; a connected, silent
   switchboard consumes zero agent tokens.
 - **Protocol rules do the rest.** No ack-only messages means no wake for

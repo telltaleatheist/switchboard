@@ -407,8 +407,10 @@ test('push filtering: an addressed message never reaches an unaddressed member',
       to: ['alpha'],
     });
     const broadcast = await send(alphaToken, 'filtered', { subject: 'for everyone', body: 'party line' });
+    const fromBeta = await send(betaToken, 'filtered', { subject: 'beta speaks', body: 'reply' });
 
-    // beta was NOT addressed by the first message: its socket sees only the second.
+    // beta was NOT addressed by the first message, and is never echoed its own
+    // send: its socket sees only alpha's broadcast.
     const betaFrame = await betaWs.next();
     assert.equal(betaFrame.type, 'message');
     assert.equal(betaFrame.channel, 'filtered');
@@ -416,13 +418,17 @@ test('push filtering: an addressed message never reaches an unaddressed member',
     await betaWs.expectSilence(200);
     assert.equal(betaWs.frames.length, 1, 'beta must be woken exactly once');
 
-    // alpha was addressed, so it sees both.
-    assert.equal((await alphaWs.next()).message.seq, addressed.seq);
-    assert.equal((await alphaWs.next()).message.seq, broadcast.seq);
+    // alpha is never live-pushed its own sends — not even the one addressed
+    // to itself. Its POST responses already confirmed them; the only frame
+    // that wakes it is beta's.
+    assert.equal((await alphaWs.next()).message.seq, fromBeta.seq);
+    await alphaWs.expectSilence(200);
+    assert.equal(alphaWs.frames.length, 1, 'alpha must be woken only by beta');
 
-    // The operator is not a member: its socket is unfiltered.
+    // The operator is not a member: its socket is unfiltered and hears all three.
     assert.equal((await operatorWs.next()).message.seq, addressed.seq);
     assert.equal((await operatorWs.next()).message.seq, broadcast.seq);
+    assert.equal((await operatorWs.next()).message.seq, fromBeta.seq);
 
     // Pull stays transparent: beta's history contains the addressed message...
     const history = await call<{ messages: any[] }>(h, 'GET', '/v1/channels/filtered/messages?since=0', {
@@ -430,17 +436,18 @@ test('push filtering: an addressed message never reaches an unaddressed member',
     });
     assert.deepEqual(
       history.json.messages.map((m) => m.seq),
-      [addressed.seq, broadcast.seq],
+      [addressed.seq, broadcast.seq, fromBeta.seq],
     );
     assert.deepEqual(history.json.messages[0].to, ['alpha']);
 
-    // ... unless it explicitly asks for the push-filtered view.
+    // ... unless it explicitly asks for the push-filtered view — which still
+    // includes beta's own message (pull is catch-up, not a wake-up).
     const filtered = await call<{ messages: any[] }>(h, 'GET', '/v1/channels/filtered/messages?since=0&for=me', {
       token: betaToken,
     });
     assert.deepEqual(
       filtered.json.messages.map((m) => m.seq),
-      [broadcast.seq],
+      [broadcast.seq, fromBeta.seq],
     );
 
     const operatorFilter = await call(h, 'GET', '/v1/channels/filtered/messages?since=0&for=me', {
@@ -463,17 +470,28 @@ test('a channel WS replays from its cursor then streams live', async () => {
   await send(alphaToken, 'replay', { subject: 'before-2', body: 'b2' });
 
   const ws = await FrameLog.open(h, `/v1/channels/replay/ws?token=${betaToken}&since=1`);
+  const alphaWs = await FrameLog.open(h, `/v1/channels/replay/ws?token=${alphaToken}&since=1`);
   try {
     const replayed = await ws.next();
     assert.equal(replayed.message.seq, 2);
     assert.equal(replayed.message.subject, 'before-2');
 
+    // Replay DOES include the agent's own messages — catch-up after a restart
+    // or compaction may need them back...
+    const ownReplay = await alphaWs.next();
+    assert.equal(ownReplay.message.seq, 2);
+
     const live = send(alphaToken, 'replay', { subject: 'after', body: 'b3' });
     const liveFrame = await ws.next();
     assert.equal(liveFrame.message.seq, 3);
     await live;
+
+    // ...but live push never echoes the sender its own message.
+    await alphaWs.expectSilence(200);
+    assert.equal(alphaWs.frames.length, 1, 'alpha replays its own message but is not echoed the live one');
   } finally {
     ws.close();
+    alphaWs.close();
   }
 });
 
