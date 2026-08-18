@@ -83,13 +83,21 @@
                 }
               </td>
               <td class="dim">{{ agent.created_at | relativeTime }}</td>
-              <td>
+              <td class="actions">
                 <button
                   type="button"
                   (click)="reissue(agent.name)"
                   [disabled]="reissuingName() === agent.name"
                 >
                   {{ reissuingName() === agent.name ? 'Reissuing…' : 'Reissue token' }}
+                </button>
+                <button
+                  type="button"
+                  class="danger"
+                  (click)="deleteAgent(agent.name)"
+                  [disabled]="deletingName() === agent.name"
+                >
+                  {{ deletingName() === agent.name ? 'Deleting…' : 'Delete' }}
                 </button>
               </td>
             </tr>

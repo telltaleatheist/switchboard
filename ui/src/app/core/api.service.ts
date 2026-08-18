@@ -56,6 +56,11 @@ export class ApiService {
     return this.request('POST', `/v1/agents/${encodeURIComponent(name)}/reissue`);
   }
 
+  /** `deleted` is 'hard' (row gone, name freed) or 'soft' (tombstoned — name retired because history references it). */
+  deleteAgent(name: string): Promise<{ name: string; deleted: 'hard' | 'soft' }> {
+    return this.request('DELETE', `/v1/agents/${encodeURIComponent(name)}`);
+  }
+
   // ---- channels --------------------------------------------------------
 
   listChannels(status?: 'open' | 'closed'): Promise<{ channels: ChannelSummary[] }> {

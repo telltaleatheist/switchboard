@@ -4,7 +4,7 @@
   justify-content: space-between;
   gap: 1rem;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   padding: 0.65rem 0.85rem;
   background: var(--bg-inset);
   flex-wrap: wrap;

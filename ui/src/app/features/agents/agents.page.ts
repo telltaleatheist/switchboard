@@ -33,6 +33,7 @@ export class AgentsPage implements OnInit, OnDestroy {
 
   protected readonly issuedToken = signal<IssuedToken | null>(null);
   protected readonly reissuingName = signal<string | null>(null);
+  protected readonly deletingName = signal<string | null>(null);
 
   private stopPolling?: () => void;
 
@@ -76,6 +77,27 @@ export class AgentsPage implements OnInit, OnDestroy {
       this.registerError.set(err instanceof ApiError ? err.message : 'Failed to register agent.');
     } finally {
       this.registering.set(false);
+    }
+  }
+
+  protected async deleteAgent(name: string): Promise<void> {
+    if (
+      !confirm(
+        `Delete agent "${name}"? Its token stops working immediately. ` +
+          `If it never sent a message the name is freed; otherwise the name stays retired so history keeps its attribution. ` +
+          `Agents in open channels can't be deleted — close their channels first.`,
+      )
+    ) {
+      return;
+    }
+    this.deletingName.set(name);
+    try {
+      await this.api.deleteAgent(name);
+      await this.refresh();
+    } catch (err) {
+      this.error.set(err instanceof ApiError ? err.message : `Failed to delete agent ${name}.`);
+    } finally {
+      this.deletingName.set(null);
     }
   }
 

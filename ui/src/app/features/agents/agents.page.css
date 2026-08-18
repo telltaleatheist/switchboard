@@ -16,3 +16,9 @@
 .issued-head {
   justify-content: space-between;
 }
+
+td.actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}

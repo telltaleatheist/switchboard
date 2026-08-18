@@ -38,7 +38,7 @@
 }
 
 .archive-item.active .dim {
-  color: #e6eef7;
+  color: var(--text);
 }
 
 .purge-box {

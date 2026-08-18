@@ -27,7 +27,7 @@
 
 .dev-banner {
   background: var(--warning);
-  color: #241a03;
+  color: var(--text-inverse);
   font-size: 0.8rem;
   text-align: center;
   padding: 0.35rem 0.5rem;
@@ -57,8 +57,9 @@
 }
 
 .brand {
+  font-family: var(--font-display);
   font-weight: 700;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
   color: var(--text);
   padding: 0 0.5rem 0.9rem 0.5rem;
   font-size: 1rem;
@@ -68,8 +69,11 @@
   color: var(--text-dim);
   text-decoration: none;
   padding: 0.45rem 0.5rem;
-  border-radius: 5px;
+  border-radius: var(--radius-md);
   font-size: 0.85rem;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
 }
 
 .sidenav a:hover {
@@ -79,7 +83,7 @@
 
 .sidenav a.active {
   background: var(--accent-dim);
-  color: #f3f7fb;
+  color: var(--accent-hover);
 }
 
 .content {

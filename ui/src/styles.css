@@ -1,28 +1,62 @@
 /* Switchboard operator console — global styles.
-   Dark-theme-first, information-dense, calm. Plain CSS, no framework. */
+   Creamsicle design system, blue/cyan variant (matches BookForge "Creamsicle
+   Desktop" and Foundry's dark theme — see C:\Users\tellt\Projects\bookforge and
+   C:\Users\tellt\Projects\foundry). Warm charcoal neutrals, cyan accent, small
+   radii, calm and information-dense. Plain CSS, no framework. */
 
 :root {
-  --bg: #14161a;
-  --bg-elevated: #1b1e24;
-  --bg-inset: #101216;
-  --bg-hover: #23272f;
-  --border: #2c313a;
-  --border-strong: #3a4048;
+  /* Backgrounds — warm charcoal, deepest first */
+  --bg: #181715;
+  --bg-elevated: #211f1c;
+  --bg-inset: #2a2824;
+  --bg-hover: rgba(255, 255, 255, 0.06);
 
-  --text: #dfe3ea;
-  --text-dim: #8a929e;
-  --text-faint: #5b6270;
+  /* Borders */
+  --border: #403c36;
+  --border-strong: #565149;
 
-  --accent: #5b9dd9;
-  --accent-dim: #3d6f96;
-  --success: #5fb87d;
-  --warning: #d9a44f;
-  --danger: #d9705b;
-  --danger-dim: #7a3b30;
+  /* Text */
+  --text: #faf9f7;
+  --text-dim: #928b7f;
+  --text-faint: #706a60;
+  --text-inverse: var(--bg);
 
+  /* Accent — cyan, the blue creamsicle variant (BookForge/Foundry cyan-400 ramp) */
+  --accent: #22d3ee;
+  --accent-hover: #67e8f9;
+  --accent-press: #a5f3fc;
+  --accent-strong: #06b6d4;
+  --accent-dim: #164e63;
+
+  /* Status */
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --danger: #f87171;
+  --danger-dim: #4a231f;
+
+  /* Radii */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-full: 999px;
+
+  /* Focus + elevation */
+  --focus-ring: 0 0 0 2px rgba(34, 211, 238, 0.4);
+  --shadow-sm:
+    0 1px 3px rgba(14, 13, 12, 0.4),
+    0 1px 2px rgba(14, 13, 12, 0.3);
+
+  /* Typography — stacks named after the reference fonts first (Outfit / DM
+     Sans / JetBrains Mono); this app ships nothing extra, so on a machine
+     without them the system fallback resolves and nothing is fetched. */
+  --font-display:
+    'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-sans:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: 'Cascadia Code', 'Consolas', 'SFMono-Regular', Menlo, Monaco, monospace;
+    'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial,
+    sans-serif;
+  --font-mono:
+    'JetBrains Mono', 'Cascadia Code', 'Consolas', 'SFMono-Regular', Menlo, Monaco,
+    monospace;
 
   color-scheme: dark;
 }
@@ -41,8 +75,10 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 1.45;
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 h1,
@@ -50,7 +86,10 @@ h2,
 h3,
 h4 {
   margin: 0 0 0.5rem 0;
+  font-family: var(--font-display);
   font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
   color: var(--text);
 }
 
@@ -61,10 +100,10 @@ h2 {
   font-size: 1rem;
 }
 h3 {
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   color: var(--text-dim);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
 }
 
 p {
@@ -76,42 +115,74 @@ a {
 }
 
 code,
-pre {
+pre,
+kbd,
+samp {
   font-family: var(--font-mono);
 }
 
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
 button {
-  font-family: inherit;
-  font-size: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
   color: var(--text);
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
-  border-radius: 5px;
-  padding: 0.4rem 0.8rem;
+  border-radius: var(--radius-md);
+  padding: 0.4rem 0.85rem;
   cursor: pointer;
   transition:
     background 0.12s ease,
-    border-color 0.12s ease;
+    border-color 0.12s ease,
+    box-shadow 0.12s ease,
+    transform 0.08s ease;
 }
 
 button:hover:not(:disabled) {
   background: var(--bg-hover);
-  border-color: var(--accent-dim);
+  border-color: var(--border-strong);
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  transform: none;
 }
 
 button.primary {
-  background: var(--accent-dim);
+  background: var(--accent);
   border-color: var(--accent);
-  color: #f3f7fb;
+  color: var(--text-inverse);
+  font-weight: 500;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 
 button.primary:hover:not(:disabled) {
-  background: var(--accent);
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+button.primary:active:not(:disabled) {
+  background: var(--accent-press);
+  border-color: var(--accent-press);
 }
 
 button.danger {
@@ -122,6 +193,7 @@ button.danger {
 
 button.danger:hover:not(:disabled) {
   background: var(--danger-dim);
+  border-color: var(--danger-dim);
   color: #fff;
 }
 
@@ -137,13 +209,18 @@ button.ghost:hover:not(:disabled) {
 input,
 select,
 textarea {
-  font-family: inherit;
-  font-size: 0.85rem;
-  color: var(--text);
   background: var(--bg-inset);
   border: 1px solid var(--border-strong);
-  border-radius: 5px;
-  padding: 0.4rem 0.6rem;
+  border-radius: var(--radius-md);
+  padding: 0.4rem 0.65rem;
+  transition:
+    border-color 0.1s ease,
+    box-shadow 0.1s ease;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-faint);
 }
 
 input:focus,
@@ -151,6 +228,17 @@ select:focus,
 textarea:focus {
   outline: none;
   border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+select {
+  cursor: pointer;
+  color-scheme: dark;
+}
+
+select option {
+  background: var(--bg-inset);
+  color: var(--text);
 }
 
 label {
@@ -164,16 +252,17 @@ label {
 .card {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   padding: 1rem;
+  box-shadow: var(--shadow-sm);
 }
 
 .badge {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  padding: 0.1rem 0.45rem;
-  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--radius-full);
   font-size: 0.72rem;
   font-weight: 500;
   border: 1px solid var(--border-strong);
@@ -192,22 +281,26 @@ label {
 
 .badge.online {
   color: var(--success);
-  border-color: var(--success);
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  border-color: transparent;
 }
 .badge.offline {
   color: var(--text-faint);
 }
 .badge.signal {
   color: var(--warning);
-  border-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  border-color: transparent;
 }
 .badge.settled {
   color: var(--success);
-  border-color: var(--success);
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  border-color: transparent;
 }
 .badge.withdrawn {
   color: var(--danger);
-  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  border-color: transparent;
 }
 
 .error-text {
@@ -263,7 +356,7 @@ table th {
   text-align: left;
   font-size: 0.72rem;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
   color: var(--text-faint);
   font-weight: 500;
   padding: 0.4rem 0.6rem;
@@ -288,6 +381,19 @@ table tbody tr:hover {
   margin-bottom: 0.5rem;
 }
 
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+::selection {
+  background: var(--accent-dim);
+  color: var(--text);
+}
+
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -296,6 +402,13 @@ table tbody tr:hover {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
-  border-radius: 5px;
+  background: var(--accent-strong);
+  border-radius: var(--radius-md);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent-strong) transparent;
 }
