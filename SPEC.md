@@ -269,6 +269,8 @@ POST /v1/join                             → self-enroll with the join key; ser
 # Operator-facing (operator token required)
 POST /v1/agents                           → register agent manually (legacy path)
 GET  /v1/join-key · POST /v1/join-key/rotate → show / rotate the universal join key
+GET/POST /v1/advertised-host              → the DNS name the join block leads
+                                            with (editable; null = primary IP)
 POST /v1/agents/{name}/rename             → rename; pushes a renamed control frame
 POST /v1/channels                         → create channel + send invitations
 GET  /v1/channels?status=…                → list

@@ -585,6 +585,42 @@ test('control line long-poll: replay with injected token, wake on invite, empty 
   assert.equal(operator.status, 403);
 });
 
+// ------------------------------------------------------- advertised host
+
+test('advertised host: set, get, clear, validate, operator-only', async () => {
+  const unset = await call<{ host: string | null }>(h, 'GET', '/v1/advertised-host', { token: h.operatorToken });
+  assert.equal(unset.status, 200);
+  assert.equal(unset.json.host, null);
+
+  const set = await call<{ host: string }>(h, 'POST', '/v1/advertised-host', {
+    token: h.operatorToken,
+    body: { host: 'switchboard.example-pc.example.com' },
+  });
+  assert.equal(set.status, 200);
+  assert.equal(set.json.host, 'switchboard.example-pc.example.com');
+  const got = await call<{ host: string }>(h, 'GET', '/v1/advertised-host', { token: h.operatorToken });
+  assert.equal(got.json.host, 'switchboard.example-pc.example.com');
+
+  // A bare host only: anything URL-shaped must be refused loudly, or every
+  // join block the console generates from it would be silently broken.
+  for (const bad of ['http://x.com', 'x.com:4400', 'x com', 'a..b', '-x.com', '']) {
+    const res = await call(h, 'POST', '/v1/advertised-host', { token: h.operatorToken, body: { host: bad } });
+    assert.equal(res.status, 400, `should reject '${bad}'`);
+  }
+
+  const agentGet = await call(h, 'GET', '/v1/advertised-host', { token: alphaToken });
+  assert.equal(agentGet.status, 403);
+
+  const cleared = await call<{ host: null }>(h, 'POST', '/v1/advertised-host', {
+    token: h.operatorToken,
+    body: { host: null },
+  });
+  assert.equal(cleared.status, 200);
+  assert.equal(cleared.json.host, null);
+  const gone = await call<{ host: null }>(h, 'GET', '/v1/advertised-host', { token: h.operatorToken });
+  assert.equal(gone.json.host, null);
+});
+
 // ---------------------------------------------------- close + transcript
 
 test('closing a channel archives a transcript and notifies every control line', async () => {

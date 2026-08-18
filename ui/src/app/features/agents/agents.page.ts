@@ -31,8 +31,15 @@ export class AgentsPage implements OnInit, OnDestroy {
   protected readonly joinKey = signal<string | null>(null);
   protected readonly joinKeyError = signal<string | null>(null);
   protected readonly rotating = signal(false);
-  /** Address override for the join block; null = the primary (first) URL. */
+  /** Address override for the join block; null = the default (hostname if set, else primary IP). */
   protected readonly selectedUrl = signal<string | null>(null);
+
+  /** Operator-configured DNS name leading the join block (null = primary IP). */
+  protected readonly advertisedHost = signal<string | null>(null);
+  protected readonly editingHost = signal(false);
+  protected readonly hostValue = signal('');
+  protected readonly hostError = signal<string | null>(null);
+  protected readonly savingHost = signal(false);
 
   protected readonly issuedToken = signal<IssuedToken | null>(null);
   protected readonly reissuingName = signal<string | null>(null);
@@ -60,11 +67,29 @@ export class AgentsPage implements OnInit, OnDestroy {
     return state.status === 'ready' ? state.config.advertisedUrls : [];
   }
 
-  /** The URL shown in the join block: the picker's choice, else the primary. */
+  /**
+   * Every route the block can carry: the configured DNS name first (it
+   * survives IP churn and reads better than an address), then the ranked
+   * IPs from the app config.
+   */
+  protected urlOptions(): string[] {
+    const host = this.advertisedHost();
+    const options = host ? [`http://${host}:${this.serverPort()}`] : [];
+    return [...options, ...this.advertisedUrls];
+  }
+
+  /** The URL shown in the join block: the picker's choice, else the default. */
   protected effectiveUrl(): string {
+    const options = this.urlOptions();
     const chosen = this.selectedUrl();
-    if (chosen !== null && this.advertisedUrls.includes(chosen)) return chosen;
-    return this.advertisedUrls[0] ?? '';
+    if (chosen !== null && options.includes(chosen)) return chosen;
+    return options[0] ?? '';
+  }
+
+  private serverPort(): string {
+    const first = this.advertisedUrls[0];
+    const match = first ? /:(\d+)$/.exec(first) : null;
+    return match ? (match[1] as string) : '4400';
   }
 
   protected async refresh(): Promise<void> {
@@ -81,11 +106,42 @@ export class AgentsPage implements OnInit, OnDestroy {
 
   protected async loadJoinKey(): Promise<void> {
     try {
-      const { join_key } = await this.api.getJoinKey();
+      const [{ join_key }, { host }] = await Promise.all([
+        this.api.getJoinKey(),
+        this.api.getAdvertisedHost(),
+      ]);
       this.joinKey.set(join_key);
+      this.advertisedHost.set(host);
       this.joinKeyError.set(null);
     } catch (err) {
       this.joinKeyError.set(err instanceof ApiError ? err.message : 'Failed to load the join key.');
+    }
+  }
+
+  protected startEditHost(): void {
+    this.hostValue.set(this.advertisedHost() ?? '');
+    this.hostError.set(null);
+    this.editingHost.set(true);
+  }
+
+  protected cancelEditHost(): void {
+    this.editingHost.set(false);
+    this.hostError.set(null);
+  }
+
+  protected async saveHost(): Promise<void> {
+    const value = this.hostValue().trim();
+    this.savingHost.set(true);
+    this.hostError.set(null);
+    try {
+      const { host } = await this.api.setAdvertisedHost(value.length === 0 ? null : value);
+      this.advertisedHost.set(host);
+      this.selectedUrl.set(null);
+      this.editingHost.set(false);
+    } catch (err) {
+      this.hostError.set(err instanceof ApiError ? err.message : 'Failed to save the address.');
+    } finally {
+      this.savingHost.set(false);
     }
   }
 

@@ -331,6 +331,41 @@ const postJoinKeyRotate = (ctx: Ctx, req: Req): Result => {
   return { status: 200, body: { join_key: ctx.store.rotateJoinKey() } };
 };
 
+const getAdvertisedHost = (ctx: Ctx, req: Req): Result => {
+  assertNoUnknownQuery(req.query, []);
+  requireOperator(req.principal);
+  return { status: 200, body: { host: ctx.store.getAdvertisedHost() } };
+};
+
+/**
+ * Set (or clear, with null) the DNS name the console's join block leads
+ * with. A bare host only — the console composes the URL; a scheme, port or
+ * path here would silently break every block it generates.
+ */
+const postAdvertisedHost = (ctx: Ctx, req: Req): Result => {
+  assertNoUnknownQuery(req.query, []);
+  requireOperator(req.principal);
+  const obj = parseBody(req, ['host']);
+  if (!('host' in obj)) throw badRequest("missing required field 'host' (a DNS name, or null to clear)");
+  const raw = obj['host'];
+  if (raw === null) {
+    ctx.store.setAdvertisedHost(null);
+    return { status: 200, body: { host: null } };
+  }
+  if (typeof raw !== 'string') throw badRequest("field 'host' must be a string or null");
+  const host = raw.trim();
+  if (host.length === 0 || host.length > 253) {
+    throw badRequest("field 'host' must be 1-253 characters (or null to clear)");
+  }
+  if (!/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/i.test(host) || host.includes('..')) {
+    throw badRequest(
+      "field 'host' must be a bare DNS name or IP — letters, digits, dots and hyphens only (no scheme, port, or path)",
+    );
+  }
+  ctx.store.setAdvertisedHost(host);
+  return { status: 200, body: { host } };
+};
+
 /**
  * Rename an agent. No dedupe: the operator picked this exact name, so a taken
  * or retired one is a 409. The agent keeps its id and token — the persisted
@@ -527,6 +562,8 @@ export const ROUTES: readonly Route[] = [
   { method: 'POST', pattern: '/v1/agents', auth: 'operator', handler: postAgents },
   { method: 'GET', pattern: '/v1/join-key', auth: 'operator', handler: getJoinKey },
   { method: 'POST', pattern: '/v1/join-key/rotate', auth: 'operator', handler: postJoinKeyRotate },
+  { method: 'GET', pattern: '/v1/advertised-host', auth: 'operator', handler: getAdvertisedHost },
+  { method: 'POST', pattern: '/v1/advertised-host', auth: 'operator', handler: postAdvertisedHost },
   { method: 'POST', pattern: '/v1/agents/{name}/rename', auth: 'operator', handler: postAgentRename },
   { method: 'POST', pattern: '/v1/agents/{name}/reissue', auth: 'operator', handler: postAgentReissue },
   { method: 'DELETE', pattern: '/v1/agents/{name}', auth: 'operator', handler: deleteAgent },

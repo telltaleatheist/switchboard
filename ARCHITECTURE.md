@@ -117,6 +117,8 @@ Operator-token endpoints (agent tokens get 403):
 | `POST /v1/agents` | `{name}` → 201 `{name, token}` (plaintext, once) — manual registration, kept for compat; the console now uses the join flow instead |
 | `GET /v1/join-key` | → `{join_key:"sw_j_…"}` (the current key, re-displayable any time) |
 | `POST /v1/join-key/rotate` | `{}` → `{join_key:"sw_j_…"}` (new key; the old one stops working immediately; existing agents unaffected) |
+| `GET /v1/advertised-host` | → `{host:"…"\|null}` — operator-configured DNS name the join block leads with (stored in `meta`; null = primary IP) |
+| `POST /v1/advertised-host` | `{host:"switchboard.my-pc.example.com"}` or `{host:null}` (clear) → `{host}`. Bare host only — scheme/port/path → 400 (the console composes the URL) |
 | `POST /v1/agents/{name}/rename` | `{name:"<new-slug>"}` → 200 `{old, name}`. 409 if the new name is taken or retired (rename is NOT deduped — the operator chose that exact name on purpose). Message attribution follows automatically (senders resolve by id at read time). Persists + pushes a `renamed` frame on the agent's control line. Historical `to_json` arrays keep the old name — display-only, never used for delivery after the fact. |
 | `POST /v1/agents/{name}/reissue` | → `{name, token}` |
 | `GET /v1/agents` | → `{agents:[{name, created_at, connected:bool, channels:[names]}]}` |
@@ -244,9 +246,11 @@ window.switchboard = {
   a plain browser for dev) fall back to `localStorage`
   (`switchboard.baseUrl`, `switchboard.operatorToken`) and show a small
   banner saying so. Missing config = visible error state, never silent.
-- Panes (SPEC §11): Agents (ONE universal join block showing the primary
-  advertised URL, copy button, a quiet alternate-address picker when more
-  routes exist, rotate-join-key button with confirm; roster with
+- Panes (SPEC §11): Agents (ONE universal join block leading with the
+  operator's configured DNS name when set — editable/clearable inline,
+  persisted server-side via /v1/advertised-host — else the primary IP;
+  copy button; a quiet alternate-address picker when more routes exist;
+  rotate-join-key button with confirm; roster with
   connected status, rename [inline edit], reissue, delete; **no manual
   registration form** — agents enroll themselves via the join flow),
   Channels (create/patch via agent multi-select; close; idle timers), Live

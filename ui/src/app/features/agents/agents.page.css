@@ -16,6 +16,26 @@
   padding: 0.2rem 0.4rem;
 }
 
+.address-row {
+  margin-top: 0.5rem;
+}
+
+.address-pick .mono {
+  color: var(--text-dim);
+}
+
+.host-edit input {
+  min-width: 260px;
+  font-size: 0.78rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.host-edit button,
+.address-pick button {
+  font-size: 0.75rem;
+  padding: 0.2rem 0.6rem;
+}
+
 .issued-card {
   border-color: var(--warning);
 }

@@ -12,6 +12,9 @@ import { nowIso, suffixSlug } from './util';
 /** `meta` row holding the enrollment credential (see getJoinKey). */
 const JOIN_KEY_META = 'join_key';
 
+/** `meta` row holding the operator's advertised DNS name (see getAdvertisedHost). */
+const ADVERTISED_HOST_META = 'advertised_host';
+
 /** How far the join dedupe probes before giving up: name-2 ... name-1000. */
 const MAX_DEDUPE_SUFFIX = 1000;
 
@@ -135,6 +138,29 @@ export class Store {
       .prepare('INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
       .run(JOIN_KEY_META, key);
     return key;
+  }
+
+  /**
+   * Operator-configured DNS name for the join block (e.g. a tailnet record
+   * like `switchboard.<machine>.<domain>`). Null when unset — the console
+   * then falls back to the machine's primary IP. Stored in `meta` so it
+   * survives restarts with the rest of the switchboard's identity.
+   */
+  getAdvertisedHost(): string | null {
+    const row = this.db.prepare('SELECT value FROM meta WHERE key = ?').get(ADVERTISED_HOST_META) as
+      | { value: string }
+      | undefined;
+    return row ? row.value : null;
+  }
+
+  setAdvertisedHost(host: string | null): void {
+    if (host === null) {
+      this.db.prepare('DELETE FROM meta WHERE key = ?').run(ADVERTISED_HOST_META);
+      return;
+    }
+    this.db
+      .prepare('INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+      .run(ADVERTISED_HOST_META, host);
   }
 
   // ---------------------------------------------------------------- agents

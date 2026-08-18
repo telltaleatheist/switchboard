@@ -19,11 +19,52 @@
       <p class="error-text">{{ joinKeyError() }}</p>
     } @else if (joinKey(); as key) {
       <app-bootstrap-block [url]="effectiveUrl()" [joinKey]="key" />
-      @if (advertisedUrls.length > 1) {
+
+      <div class="address-row">
+        @if (editingHost()) {
+          <label class="address-pick host-edit">
+            Advertised DNS name
+            <input
+              type="text"
+              class="mono"
+              placeholder="switchboard.my-pc.example.com"
+              [ngModel]="hostValue()"
+              (ngModelChange)="hostValue.set($event)"
+              name="advertisedHost"
+              [disabled]="savingHost()"
+              (keydown.enter)="saveHost()"
+              (keydown.escape)="cancelEditHost()"
+            />
+            <button type="button" class="primary" (click)="saveHost()" [disabled]="savingHost()">
+              {{ savingHost() ? 'Saving…' : 'Save' }}
+            </button>
+            <button type="button" class="ghost" (click)="cancelEditHost()" [disabled]="savingHost()">
+              Cancel
+            </button>
+          </label>
+          @if (hostError()) {
+            <p class="error-text rename-error">{{ hostError() }}</p>
+          }
+          <p class="hint">Leave empty and save to go back to the primary IP.</p>
+        } @else {
+          <span class="address-pick">
+            @if (advertisedHost(); as host) {
+              Leading with DNS name <span class="mono">{{ host }}</span>
+            } @else {
+              Leading with the primary IP — a DNS name survives address changes
+            }
+            <button type="button" class="ghost" (click)="startEditHost()">
+              {{ advertisedHost() ? 'Edit' : 'Set DNS name' }}
+            </button>
+          </span>
+        }
+      </div>
+
+      @if (urlOptions().length > 1) {
         <label class="address-pick">
           Pasting to a machine that can't reach this address? Use
           <select (change)="selectedUrl.set($any($event.target).value)">
-            @for (u of advertisedUrls; track u) {
+            @for (u of urlOptions(); track u) {
               <option [value]="u" [selected]="u === effectiveUrl()">{{ u }}</option>
             }
           </select>

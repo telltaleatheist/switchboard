@@ -74,6 +74,16 @@ export class ApiService {
     return this.request('POST', '/v1/join-key/rotate', {});
   }
 
+  /** The operator-configured DNS name the join block leads with; null = use the primary IP. */
+  getAdvertisedHost(): Promise<{ host: string | null }> {
+    return this.request('GET', '/v1/advertised-host');
+  }
+
+  /** Set (bare host, no scheme/port) or clear (null) the advertised DNS name. */
+  setAdvertisedHost(host: string | null): Promise<{ host: string | null }> {
+    return this.request('POST', '/v1/advertised-host', { host });
+  }
+
   /** `deleted` is 'hard' (row gone, name freed) or 'soft' (tombstoned — name retired because history references it). */
   deleteAgent(name: string): Promise<{ name: string; deleted: 'hard' | 'soft' }> {
     return this.request('DELETE', `/v1/agents/${encodeURIComponent(name)}`);
