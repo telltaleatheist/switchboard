@@ -68,6 +68,11 @@ async function main(): Promise<void> {
     }
     process.stderr.write(`switchboard: unknown stdin command: ${text}\n`);
   });
+  // stdin EOF means the parent process died (or deliberately closed the
+  // pipe): shut down rather than survive as an orphan squatting on the port.
+  // The server's lifetime is its parent's lifetime by design — anyone
+  // daemonizing it standalone must keep stdin open.
+  rl.on('close', () => stop('stdin closed (parent gone)'));
 
   process.on('SIGINT', () => stop('SIGINT'));
   process.on('SIGTERM', () => stop('SIGTERM'));

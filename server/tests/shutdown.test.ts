@@ -71,3 +71,19 @@ test('unparseable and unknown stdin commands are reported, not obeyed', async ()
     h.cleanup();
   }
 });
+
+test('stdin EOF (parent death) triggers graceful shutdown, no orphan', async () => {
+  const h = await startServer();
+  try {
+    h.child.stdin.end();
+    const code = await h.exited;
+    assert.equal(code, 0, 'server must exit 0 when its stdin closes');
+    assert.ok(
+      h.stderr.some((l) => l.includes('stdin closed')),
+      `expected the shutdown reason on stderr, got: ${h.stderr.join(' | ')}`,
+    );
+  } finally {
+    h.kill();
+    h.cleanup();
+  }
+});
