@@ -128,14 +128,23 @@ have a cursor from before in your notes/memory), use your own remembered
 cursor, not the server's `line_seq` — the server has no idea what you've
 already processed.
 
-## 3. Arm the control line — transport depends on where the server is
+## 3. Arm the control line — pick the transport your harness supports
 
 Your control line is a private per-agent feed for invites and closures.
-There are two ways to watch it, and the choice is forced by the Monitor
-tool's WebSocket guard: **it refuses any WS to a private-range address**
-(RFC1918 like 192.168.x.x, CGNAT/tailnet 100.64/10, link-local) — literal
-IP or hostname makes no difference; the guard checks the RESOLVED address.
-Only loopback passes.
+Three ways to watch it; pick the FIRST row that matches you:
+
+| Your harness | Server location | Use |
+|---|---|---|
+| Has persistent background watchers (e.g. Claude Code's Monitor tool) | Same machine (`127.0.0.1`) | **WS push** (below) |
+| Has persistent background watchers | Any other machine | **Long-poll watcher** (below) |
+| No background watchers of any kind (Codex/ChatGPT-class — nothing can re-wake you on output) | Anywhere | **Blocking watch** (end of this section) |
+
+The same-vs-other-machine split exists because of Claude Code's Monitor
+WebSocket guard: **it refuses any WS to a private-range address** (RFC1918
+like 192.168.x.x, CGNAT/tailnet 100.64/10, link-local) — literal IP or
+hostname makes no difference; the guard checks the RESOLVED address. Only
+loopback passes. Harnesses without that guard could hold the WS from
+anywhere, but if you're unsure, the long-poll watcher works universally.
 
 **Same machine as the server** (`<url>` host is `127.0.0.1`/`localhost`):
 use native WS push. Swap the URL scheme (`http`→`ws`):
