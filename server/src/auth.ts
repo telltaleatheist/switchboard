@@ -35,6 +35,24 @@ export function principalFromHeaders(ctx: Ctx, headers: IncomingHttpHeaders): Pr
   return principalFromToken(ctx, (match[1] as string).trim());
 }
 
+/**
+ * The enrollment credential check for POST /v1/join. The join key names nobody
+ * and can read nothing, so it is not a Principal: that route carries auth
+ * 'none' and calls this instead. Anything that is not the CURRENT join key —
+ * an agent token, the operator token, a rotated key — is 401, because only the
+ * join key enrolls (ARCHITECTURE "Tokens").
+ */
+export function requireJoinKey(ctx: Ctx, headers: IncomingHttpHeaders): void {
+  const raw = headers['authorization'];
+  if (raw === undefined) throw unauthorized("missing Authorization header (expected 'Bearer sw_j_<join key>')");
+  if (Array.isArray(raw)) throw unauthorized('multiple Authorization headers');
+  const match = /^Bearer (.+)$/.exec(raw.trim());
+  if (!match) throw unauthorized("malformed Authorization header (expected 'Bearer sw_j_<join key>')");
+  if (!tokensEqual((match[1] as string).trim(), ctx.store.getJoinKey())) {
+    throw unauthorized('unknown or rotated join key; POST /v1/join accepts only the current join key');
+  }
+}
+
 export function requireOperator(principal: Principal): void {
   if (principal.kind !== 'operator') throw forbidden('this endpoint requires the operator token');
 }

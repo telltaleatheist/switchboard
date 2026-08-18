@@ -11,7 +11,6 @@ import { RelativeTimePipe } from '../../shared/relative-time.pipe';
 interface IssuedToken {
   agentName: string;
   token: string;
-  kind: 'registered' | 'reissued';
 }
 
 @Component({
@@ -29,18 +28,24 @@ export class AgentsPage implements OnInit, OnDestroy {
   protected readonly loading = signal(true);
   protected readonly error = signal<string | null>(null);
 
-  protected readonly newAgentName = signal('');
-  protected readonly registering = signal(false);
-  protected readonly registerError = signal<string | null>(null);
+  protected readonly joinKey = signal<string | null>(null);
+  protected readonly joinKeyError = signal<string | null>(null);
+  protected readonly rotating = signal(false);
 
   protected readonly issuedToken = signal<IssuedToken | null>(null);
   protected readonly reissuingName = signal<string | null>(null);
   protected readonly deletingName = signal<string | null>(null);
 
+  protected readonly editingName = signal<string | null>(null);
+  protected readonly editValue = signal('');
+  protected readonly renameError = signal<string | null>(null);
+  protected readonly savingRename = signal(false);
+
   private stopPolling?: () => void;
 
   ngOnInit(): void {
     void this.refresh();
+    void this.loadJoinKey();
     this.stopPolling = startPolling(() => void this.refresh());
   }
 
@@ -65,20 +70,35 @@ export class AgentsPage implements OnInit, OnDestroy {
     }
   }
 
-  protected async register(): Promise<void> {
-    const name = this.newAgentName().trim();
-    if (!name) return;
-    this.registering.set(true);
-    this.registerError.set(null);
+  protected async loadJoinKey(): Promise<void> {
     try {
-      const res = await this.api.registerAgent(name);
-      this.issuedToken.set({ agentName: res.name, token: res.token, kind: 'registered' });
-      this.newAgentName.set('');
-      await this.refresh();
+      const { join_key } = await this.api.getJoinKey();
+      this.joinKey.set(join_key);
+      this.joinKeyError.set(null);
     } catch (err) {
-      this.registerError.set(err instanceof ApiError ? err.message : 'Failed to register agent.');
+      this.joinKeyError.set(err instanceof ApiError ? err.message : 'Failed to load the join key.');
+    }
+  }
+
+  protected async rotateJoinKey(): Promise<void> {
+    const ok = await this.confirmService.ask({
+      title: 'Rotate the join key?',
+      message:
+        'The old paste block stops working immediately — anyone who hasn\'t joined yet with it will ' +
+        'need the new block. Agents that already joined keep working; they hold their own tokens.',
+      confirmLabel: 'Rotate key',
+      danger: true,
+    });
+    if (!ok) return;
+    this.rotating.set(true);
+    try {
+      const { join_key } = await this.api.rotateJoinKey();
+      this.joinKey.set(join_key);
+      this.joinKeyError.set(null);
+    } catch (err) {
+      this.joinKeyError.set(err instanceof ApiError ? err.message : 'Failed to rotate the join key.');
     } finally {
-      this.registering.set(false);
+      this.rotating.set(false);
     }
   }
 
@@ -114,7 +134,7 @@ export class AgentsPage implements OnInit, OnDestroy {
     this.reissuingName.set(name);
     try {
       const res = await this.api.reissueAgentToken(name);
-      this.issuedToken.set({ agentName: res.name, token: res.token, kind: 'reissued' });
+      this.issuedToken.set({ agentName: res.name, token: res.token });
     } catch (err) {
       this.error.set(err instanceof ApiError ? err.message : `Failed to reissue token for ${name}.`);
     } finally {
@@ -124,5 +144,41 @@ export class AgentsPage implements OnInit, OnDestroy {
 
   protected dismissIssuedToken(): void {
     this.issuedToken.set(null);
+  }
+
+  protected startRename(agent: AgentSummary): void {
+    this.editingName.set(agent.name);
+    this.editValue.set(agent.name);
+    this.renameError.set(null);
+  }
+
+  protected cancelRename(): void {
+    this.editingName.set(null);
+    this.editValue.set('');
+    this.renameError.set(null);
+  }
+
+  protected async saveRename(currentName: string): Promise<void> {
+    const newName = this.editValue().trim();
+    if (!newName) {
+      this.renameError.set('Name is required.');
+      return;
+    }
+    if (newName === currentName) {
+      this.cancelRename();
+      return;
+    }
+    this.savingRename.set(true);
+    this.renameError.set(null);
+    try {
+      await this.api.renameAgent(currentName, newName);
+      this.editingName.set(null);
+      this.editValue.set('');
+      await this.refresh();
+    } catch (err) {
+      this.renameError.set(err instanceof ApiError ? err.message : `Failed to rename ${currentName}.`);
+    } finally {
+      this.savingRename.set(false);
+    }
   }
 }

@@ -51,7 +51,15 @@ node server/dist/index.js --port 4400 --host 0.0.0.0 --data-dir <path>
 
 - Agent tokens: `sw_a_` + 32 hex chars (crypto random). Stored in SQLite as
   SHA-256 hex **hash only**. Plaintext is returned exactly once — in the
-  create/reissue response. Reissue invalidates the old token.
+  join/create/reissue response. Reissue invalidates the old token.
+- Join key: `sw_j_` + 32 hex — the **enrollment credential**. One per
+  switchboard, generated on first boot, stored **plaintext** in `meta`
+  (key `join_key`): it must be re-displayable in the console at any time,
+  and the DB lives on the operator's own machine — agents' per-identity
+  tokens stay hashed. Valid ONLY for `POST /v1/join`; it can send no
+  messages and read nothing. Rotation mints a new key and kills the old one
+  instantly; existing agents (who hold their own `sw_a_` tokens) are
+  unaffected.
 - Operator token: `sw_o_` + 32 hex — **ephemeral, per-boot, in-memory
   only**, emitted on the ready line. The embedded parent (Electron main) is
   the only operator; nothing operator-related persists.
@@ -61,7 +69,7 @@ node server/dist/index.js --port 4400 --host 0.0.0.0 --data-dir <path>
 ### SQLite schema (better-sqlite3, WAL mode)
 
 ```sql
-meta(key TEXT PRIMARY KEY, value TEXT)                  -- schema_version
+meta(key TEXT PRIMARY KEY, value TEXT)                  -- schema_version, join_key
 agents(id INTEGER PK, name TEXT UNIQUE, token_hash TEXT,
        created_at TEXT, line_seq INTEGER DEFAULT 0)
 channels(id INTEGER PK, name TEXT, status TEXT,          -- open|closed
@@ -93,7 +101,8 @@ Agent-token endpoints:
 | Method/path | Body → Response |
 |---|---|
 | `GET /v1/version` | (no auth) → `{api:1, server:"0.1.0"}` |
-| `GET /v1/agents/me` | → `{agent, channels:[{name, last_seq, members:[names]}], line_seq}` |
+| `POST /v1/join` | (auth: **join key** as `Bearer sw_j_…`) `{name}` (proposed slug) → 201 `{agent:"<canonical>", token:"sw_a_…", created_at}`. **The server dedupes silently**: if the proposed name is taken (live or retired), it appends `-2`, `-3`, … and returns the first free name as `agent` — no failure mode, no retry loop. 401 on a wrong/rotated join key. |
+| `GET /v1/agents/me` | → `{agent, channels:[{name, last_seq, members:[names]}], line_seq}` (`agent` is always the CURRENT canonical name — a renamed agent re-learns its name here) |
 | `POST /v1/channels/{name}/messages` | `{subject, body, to?, in_reply_to?, signal?, state?}` → 201 `{seq, ts}` |
 | `GET /v1/channels/{name}/messages?since=N[&wait=S][&for=me]` | → `{messages:[Message], last_seq}`; `wait` long-polls (max 60 s) when no news; `for=me` applies push filtering to pull |
 | `GET /v1/channels/{name}` | → `{name, status, members, last_seq, created_at, note, last_message_at}` (`last_message_at` ISO-8601 or null — the UI's idle display needs it) |
@@ -104,7 +113,10 @@ Operator-token endpoints (agent tokens get 403):
 
 | Method/path | Body → Response |
 |---|---|
-| `POST /v1/agents` | `{name}` → 201 `{name, token}` (plaintext, once) |
+| `POST /v1/agents` | `{name}` → 201 `{name, token}` (plaintext, once) — manual registration, kept for compat; the console now uses the join flow instead |
+| `GET /v1/join-key` | → `{join_key:"sw_j_…"}` (the current key, re-displayable any time) |
+| `POST /v1/join-key/rotate` | `{}` → `{join_key:"sw_j_…"}` (new key; the old one stops working immediately; existing agents unaffected) |
+| `POST /v1/agents/{name}/rename` | `{name:"<new-slug>"}` → 200 `{old, name}`. 409 if the new name is taken or retired (rename is NOT deduped — the operator chose that exact name on purpose). Message attribution follows automatically (senders resolve by id at read time). Persists + pushes a `renamed` frame on the agent's control line. Historical `to_json` arrays keep the old name — display-only, never used for delivery after the fact. |
 | `POST /v1/agents/{name}/reissue` | → `{name, token}` |
 | `GET /v1/agents` | → `{agents:[{name, created_at, connected:bool, channels:[names]}]}` |
 | `POST /v1/channels` | `{name, members:[names], note?}` → 201 `{name, invited:[names]}` (pushes invites) |
@@ -140,6 +152,9 @@ Rules (fail loudly, per SPEC §2):
   - `{"type":"message","channel":name,"message":Message}`
   - `{"type":"invite","line_seq":N,"channel":name,"token":"sw_c_…","members":[…],"last_seq":M,"note":str}` (line only)
   - `{"type":"closed","line_seq":N,"channel":name,"reason":"closed|idle-expiry","transcript":str}` (line only)
+  - `{"type":"renamed","line_seq":N,"old":str,"new":str}` (line only,
+    persisted like invite/closed so it replays) — the agent updates its own
+    notes; its token and id are unchanged, nothing needs re-arming.
   - `{"type":"shutdown"}` (both, not persisted, no seq) then close 1001.
 - **Push filtering is server-side**: a channel-WS member receives a message
   frame only if `to` is null or includes its name. **The sender is never
@@ -148,6 +163,10 @@ Rules (fail loudly, per SPEC §2):
   Replay (`since=N` on connect) and history reads DO include the agent's own
   messages: catch-up after a restart or compaction may need them back.
   History reads without `for=me` return everything (party-line pull).
+- **Rename safety**: echo suppression compares by agent **id**, not name
+  (a rename must never race it), and a rename updates the cached
+  `agentName` on every live connection the agent holds, so `to:` push
+  filtering stays correct without a reconnect.
 - Channel invite tokens: **v1 simplification — the invite's `token` field
   repeats the agent's own token**; membership (tracked in
   `channel_members`) is what grants channel access. The field exists so the
@@ -215,19 +234,21 @@ window.switchboard = {
   a plain browser for dev) fall back to `localStorage`
   (`switchboard.baseUrl`, `switchboard.operatorToken`) and show a small
   banner saying so. Missing config = visible error state, never silent.
-- Panes (SPEC §11): Agents (register → show bootstrap block once, copy
-  button, per-`advertisedUrls` variants; connected status; reissue),
+- Panes (SPEC §11): Agents (the UNIVERSAL join block — one per advertised
+  URL, copy button, rotate-join-key button with confirm; roster with
+  connected status, rename [inline edit], reissue, delete; **no manual
+  registration form** — agents enroll themselves via the join flow),
   Channels (create/patch via agent multi-select; close; idle timers), Live
   channel view (WS subscribe with operator token — operator sees ALL frames
   unfiltered), Patch requests (approve/deny), Archives (browse, export
   .md download, purge-older-than-[N]-days button, default 30).
-- Bootstrap block text the UI generates:
+- Bootstrap block text the UI generates (universal — same block for every
+  session; the agent names itself at join):
 
 ```
 SWITCHBOARD
-url:    <advertised url>
-agent:  <name>
-token:  <plaintext token>
+url:   <advertised url>
+join:  <join key>
 ```
 
 - Poll-refresh lists lightly (10 s) + refresh on window focus; the live

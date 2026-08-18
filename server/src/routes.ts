@@ -14,9 +14,9 @@ import {
   SERVER_VERSION,
   type Ctx,
 } from './context';
-import { requireAgent, requireOperator, type Principal } from './auth';
+import { requireAgent, requireJoinKey, requireOperator, type Principal } from './auth';
 import { badRequest, conflict, forbidden, notFound } from './errors';
-import { closeChannel, purgeOlderThan, sendInvitations } from './lifecycle';
+import { closeChannel, emitLineEvent, purgeOlderThan, sendInvitations } from './lifecycle';
 import { Hub } from './hub';
 import type { Req, Result, Route } from './router';
 import type { AgentRow, ChannelRow } from './store';
@@ -97,6 +97,23 @@ const getVersion = (): Result => ({
   body: { api: API_VERSION, server: SERVER_VERSION },
 });
 
+/**
+ * Enrollment. The join key is the only credential accepted here (checked by
+ * hand: it is not a Principal, so the route carries auth 'none'). The proposed
+ * name is a wish, not a claim — a taken name is silently deduped and the
+ * canonical one comes back as `agent`.
+ */
+const postJoin = (ctx: Ctx, req: Req): Result => {
+  assertNoUnknownQuery(req.query, []);
+  requireJoinKey(ctx, req.headers);
+  const obj = parseBody(req, ['name']);
+  if (!('name' in obj)) throw badRequest("missing required field 'name'");
+  const proposed = assertSlug(obj['name'], 'name');
+  const token = mintAgentToken();
+  const agent = ctx.store.createAgentDeduped(proposed, hashToken(token));
+  return { status: 201, body: { agent: agent.name, token, created_at: agent.created_at } };
+};
+
 const getAgentsMe = (ctx: Ctx, req: Req): Result => {
   assertNoUnknownQuery(req.query, []);
   const agent = requireAgent(req.principal);
@@ -169,7 +186,7 @@ const postMessage = (ctx: Ctx, req: Req): Result => {
     idempotencyKey,
   );
 
-  ctx.hub.broadcastMessage(channel.id, channel.name, {
+  ctx.hub.broadcastMessage(channel.id, channel.name, sender.id, {
     seq: stored.seq,
     ts: stored.ts,
     sender: sender.name,
@@ -260,6 +277,43 @@ const postAgents = (ctx: Ctx, req: Req): Result => {
   const token = mintAgentToken();
   const agent = ctx.store.createAgent(name, hashToken(token));
   return { status: 201, body: { name: agent.name, token, created_at: agent.created_at } };
+};
+
+const getJoinKey = (ctx: Ctx, req: Req): Result => {
+  assertNoUnknownQuery(req.query, []);
+  requireOperator(req.principal);
+  return { status: 200, body: { join_key: ctx.store.getJoinKey() } };
+};
+
+const postJoinKeyRotate = (ctx: Ctx, req: Req): Result => {
+  assertNoUnknownQuery(req.query, []);
+  requireOperator(req.principal);
+  parseBody(req, []);
+  // Agents already hold their own sw_a_ tokens and are untouched by this.
+  return { status: 200, body: { join_key: ctx.store.rotateJoinKey() } };
+};
+
+/**
+ * Rename an agent. No dedupe: the operator picked this exact name, so a taken
+ * or retired one is a 409. The agent keeps its id and token — the persisted
+ * `renamed` frame is how it learns, and the hub repoints its live connections
+ * so `to:` push filtering never lags behind (ARCHITECTURE "Rename safety").
+ */
+const postAgentRename = (ctx: Ctx, req: Req): Result => {
+  assertNoUnknownQuery(req.query, []);
+  requireOperator(req.principal);
+  const obj = parseBody(req, ['name']);
+  if (!('name' in obj)) throw badRequest("missing required field 'name'");
+  const next = assertSlug(obj['name'], 'name');
+  const current = req.params['name'] as string;
+  const agent = ctx.store.findAgentByName(current);
+  if (!agent) throw notFound(`unknown agent '${current}'`);
+  if (next === agent.name) throw badRequest(`agent '${agent.name}' is already named '${next}'`);
+
+  ctx.store.renameAgent(agent.id, next);
+  ctx.hub.renameAgent(agent.id, next);
+  emitLineEvent(ctx, agent.id, { type: 'renamed', old: agent.name, new: next });
+  return { status: 200, body: { old: agent.name, name: next } };
 };
 
 const postAgentReissue = (ctx: Ctx, req: Req): Result => {
@@ -418,6 +472,8 @@ const postPurge = (ctx: Ctx, req: Req): Result => {
 
 export const ROUTES: readonly Route[] = [
   { method: 'GET', pattern: '/v1/version', auth: 'none', handler: getVersion },
+  // 'none' at the router level: the handler validates the join key itself.
+  { method: 'POST', pattern: '/v1/join', auth: 'none', handler: postJoin },
 
   { method: 'GET', pattern: '/v1/agents/me', auth: 'agent', handler: getAgentsMe },
   { method: 'POST', pattern: '/v1/channels/{name}/messages', auth: 'agent', handler: postMessage },
@@ -427,6 +483,9 @@ export const ROUTES: readonly Route[] = [
   { method: 'POST', pattern: '/v1/patch-requests', auth: 'agent', handler: postPatchRequest },
 
   { method: 'POST', pattern: '/v1/agents', auth: 'operator', handler: postAgents },
+  { method: 'GET', pattern: '/v1/join-key', auth: 'operator', handler: getJoinKey },
+  { method: 'POST', pattern: '/v1/join-key/rotate', auth: 'operator', handler: postJoinKeyRotate },
+  { method: 'POST', pattern: '/v1/agents/{name}/rename', auth: 'operator', handler: postAgentRename },
   { method: 'POST', pattern: '/v1/agents/{name}/reissue', auth: 'operator', handler: postAgentReissue },
   { method: 'DELETE', pattern: '/v1/agents/{name}', auth: 'operator', handler: deleteAgent },
   { method: 'GET', pattern: '/v1/agents', auth: 'operator', handler: getAgents },

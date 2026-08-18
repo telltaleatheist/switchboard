@@ -1,44 +1,37 @@
 <div class="stack">
   <section class="card">
-    <h1>Register an agent</h1>
-    <p class="hint">
-      Name it, register it, then paste the bootstrap block into that agent's session — once.
-    </p>
-    <form class="register-form" (ngSubmit)="register()">
-      <input
-        type="text"
-        placeholder="agent-name (e.g. bookforge-pc)"
-        [ngModel]="newAgentName()"
-        (ngModelChange)="newAgentName.set($event)"
-        name="agentName"
-        [disabled]="registering()"
-      />
-      <button type="submit" class="primary" [disabled]="registering() || !newAgentName().trim()">
-        {{ registering() ? 'Registering…' : 'Register' }}
+    <div class="section-head">
+      <h1>Join this switchboard</h1>
+      <button
+        type="button"
+        class="danger"
+        (click)="rotateJoinKey()"
+        [disabled]="rotating() || !joinKey()"
+      >
+        {{ rotating() ? 'Rotating…' : 'Rotate join key' }}
       </button>
-    </form>
-    @if (registerError()) {
-      <p class="error-text">{{ registerError() }}</p>
+    </div>
+    <p class="hint">
+      Paste this block into a new agent's session — it enrolls itself with <code>POST /v1/join</code> and picks
+      its own name. The same block works for any number of agents until you rotate it.
+    </p>
+    @if (joinKeyError()) {
+      <p class="error-text">{{ joinKeyError() }}</p>
+    } @else if (joinKey(); as key) {
+      <app-bootstrap-block [joinKey]="key" [advertisedUrls]="advertisedUrls" />
+    } @else {
+      <p class="empty">Loading…</p>
     }
   </section>
 
   @if (issuedToken(); as issued) {
     <section class="card issued-card">
       <div class="row issued-head">
-        <h2>
-          {{ issued.kind === 'registered' ? 'Bootstrap block for' : 'New token for' }}
-          "{{ issued.agentName }}"
-        </h2>
+        <h2>New token for "{{ issued.agentName }}"</h2>
         <button type="button" class="ghost" (click)="dismissIssuedToken()">Dismiss</button>
       </div>
-      <p class="hint warning">
-        Shown once — it will not be shown again. Copy it now.
-      </p>
-      <app-bootstrap-block
-        [agentName]="issued.agentName"
-        [token]="issued.token"
-        [advertisedUrls]="advertisedUrls"
-      />
+      <p class="hint warning">Shown once — it will not be shown again. Copy it now.</p>
+      <pre class="token-block">{{ issued.token }}</pre>
     </section>
   }
 
@@ -50,7 +43,7 @@
     @if (loading()) {
       <p class="empty">Loading…</p>
     } @else if (agents().length === 0) {
-      <p class="empty">No agents registered yet.</p>
+      <p class="empty">No agents have joined yet.</p>
     } @else {
       <table class="agents-table">
         <thead>
@@ -65,7 +58,25 @@
         <tbody>
           @for (agent of agents(); track agent.name) {
             <tr>
-              <td class="mono">{{ agent.name }}</td>
+              <td>
+                @if (editingName() === agent.name) {
+                  <input
+                    type="text"
+                    class="mono"
+                    [ngModel]="editValue()"
+                    (ngModelChange)="editValue.set($event)"
+                    name="renameValue"
+                    [disabled]="savingRename()"
+                    (keydown.enter)="saveRename(agent.name)"
+                    (keydown.escape)="cancelRename()"
+                  />
+                  @if (renameError()) {
+                    <p class="error-text rename-error">{{ renameError() }}</p>
+                  }
+                } @else {
+                  <span class="mono">{{ agent.name }}</span>
+                }
+              </td>
               <td>
                 <span class="badge dot" [class.online]="agent.connected" [class.offline]="!agent.connected">
                   {{ agent.connected ? 'connected' : 'offline' }}
@@ -84,21 +95,36 @@
               </td>
               <td class="dim">{{ agent.created_at | relativeTime }}</td>
               <td class="actions">
-                <button
-                  type="button"
-                  (click)="reissue(agent.name)"
-                  [disabled]="reissuingName() === agent.name"
-                >
-                  {{ reissuingName() === agent.name ? 'Reissuing…' : 'Reissue token' }}
-                </button>
-                <button
-                  type="button"
-                  class="danger"
-                  (click)="deleteAgent(agent.name)"
-                  [disabled]="deletingName() === agent.name"
-                >
-                  {{ deletingName() === agent.name ? 'Deleting…' : 'Delete' }}
-                </button>
+                @if (editingName() === agent.name) {
+                  <button
+                    type="button"
+                    class="primary"
+                    (click)="saveRename(agent.name)"
+                    [disabled]="savingRename()"
+                  >
+                    {{ savingRename() ? 'Saving…' : 'Save' }}
+                  </button>
+                  <button type="button" class="ghost" (click)="cancelRename()" [disabled]="savingRename()">
+                    Cancel
+                  </button>
+                } @else {
+                  <button type="button" (click)="startRename(agent)">Rename</button>
+                  <button
+                    type="button"
+                    (click)="reissue(agent.name)"
+                    [disabled]="reissuingName() === agent.name"
+                  >
+                    {{ reissuingName() === agent.name ? 'Reissuing…' : 'Reissue token' }}
+                  </button>
+                  <button
+                    type="button"
+                    class="danger"
+                    (click)="deleteAgent(agent.name)"
+                    [disabled]="deletingName() === agent.name"
+                  >
+                    {{ deletingName() === agent.name ? 'Deleting…' : 'Delete' }}
+                  </button>
+                }
               </td>
             </tr>
           }

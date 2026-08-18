@@ -10,9 +10,11 @@ import type {
   CloseChannelResponse,
   CreateChannelRequest,
   CreateChannelResponse,
+  JoinKeyResponse,
   MessagesPage,
   PatchRequest,
   PurgeResponse,
+  RenameAgentResponse,
   VersionInfo,
 } from './api.models';
 
@@ -54,6 +56,22 @@ export class ApiService {
 
   reissueAgentToken(name: string): Promise<AgentRegisterResponse> {
     return this.request('POST', `/v1/agents/${encodeURIComponent(name)}/reissue`);
+  }
+
+  renameAgent(currentName: string, newName: string): Promise<RenameAgentResponse> {
+    return this.request('POST', `/v1/agents/${encodeURIComponent(currentName)}/rename`, {
+      name: newName,
+    });
+  }
+
+  /** The re-displayable universal enrollment credential (ARCHITECTURE.md "Tokens"). */
+  getJoinKey(): Promise<JoinKeyResponse> {
+    return this.request('GET', '/v1/join-key');
+  }
+
+  /** Mints a fresh join key; the old one stops working immediately, joined agents are unaffected. */
+  rotateJoinKey(): Promise<JoinKeyResponse> {
+    return this.request('POST', '/v1/join-key/rotate', {});
   }
 
   /** `deleted` is 'hard' (row gone, name freed) or 'soft' (tombstoned — name retired because history references it). */

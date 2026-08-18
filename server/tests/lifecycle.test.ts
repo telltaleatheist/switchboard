@@ -66,6 +66,45 @@ test('agents, channels and messages survive a restart; the operator token does n
   }
 });
 
+test('the join key survives a restart, and a rotated one is what comes back', async () => {
+  const dataDir = tempDataDir();
+  const first = await startServer({ dataDir, keepDataDir: true });
+  let rotated: string;
+  try {
+    const minted = await call<{ join_key: string }>(first, 'GET', '/v1/join-key', { token: first.operatorToken });
+    assert.match(minted.json.join_key, /^sw_j_[0-9a-f]{32}$/);
+    const res = await call<{ join_key: string }>(first, 'POST', '/v1/join-key/rotate', {
+      token: first.operatorToken,
+      body: {},
+    });
+    rotated = res.json.join_key;
+    assert.notEqual(rotated, minted.json.join_key);
+    assert.equal(await first.stop(), 0);
+  } finally {
+    first.kill();
+  }
+
+  const second = await startServer({ dataDir });
+  try {
+    // Unlike the operator token, the join key is persistent: a reboot must not
+    // silently invalidate every bootstrap block the operator has handed out.
+    const after = await call<{ join_key: string }>(second, 'GET', '/v1/join-key', { token: second.operatorToken });
+    assert.equal(after.json.join_key, rotated);
+
+    const enrolled = await call<{ agent: string }>(second, 'POST', '/v1/join', {
+      token: rotated,
+      body: { name: 'late-joiner' },
+    });
+    assert.equal(enrolled.status, 201);
+    assert.equal(enrolled.json.agent, 'late-joiner');
+
+    assert.equal(await second.stop(), 0);
+  } finally {
+    second.kill();
+    second.cleanup();
+  }
+});
+
 test('idle expiry closes stale channels and pushes an idle-expiry closure', async () => {
   const dataDir = tempDataDir();
   const first = await startServer({ dataDir, keepDataDir: true });

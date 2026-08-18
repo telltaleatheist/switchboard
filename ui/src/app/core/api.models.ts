@@ -23,6 +23,16 @@ export interface AgentRegisterResponse {
   token: string;
 }
 
+/** `GET /v1/join-key` and `POST /v1/join-key/rotate` share this shape. */
+export interface JoinKeyResponse {
+  join_key: string;
+}
+
+export interface RenameAgentResponse {
+  old: string;
+  name: string;
+}
+
 // ---- Channels ----------------------------------------------------------
 
 export interface ChannelSummary {

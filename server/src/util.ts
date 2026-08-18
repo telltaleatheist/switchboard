@@ -27,6 +27,7 @@ export function decodeUtf8Strict(buf: Buffer, what: string): string {
 
 /** Channel and agent names are slugs: lowercase alnum plus '-' and '_'. */
 const SLUG_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const SLUG_MAX_CHARS = 64;
 
 export function assertSlug(value: unknown, field: string): string {
   if (typeof value !== 'string') throw badRequest(`field '${field}' must be a string`);
@@ -36,6 +37,17 @@ export function assertSlug(value: unknown, field: string): string {
     );
   }
   return value;
+}
+
+/**
+ * `name` -> `name-2`, `name-3`, ... for the silent dedupe of POST /v1/join.
+ * The base is trimmed when the suffix would push the result past the slug
+ * length limit, and the result goes back through assertSlug: a dedupe must
+ * never invent a name the server itself would reject.
+ */
+export function suffixSlug(base: string, n: number): string {
+  const suffix = `-${n}`;
+  return assertSlug(base.slice(0, SLUG_MAX_CHARS - suffix.length) + suffix, 'name');
 }
 
 /** Reject any top-level field the endpoint does not know about (SPEC §6). */

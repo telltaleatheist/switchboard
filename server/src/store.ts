@@ -6,7 +6,14 @@
 
 import type { Db } from './db';
 import { conflict, notFound } from './errors';
-import { nowIso } from './util';
+import { mintJoinKey } from './tokens';
+import { nowIso, suffixSlug } from './util';
+
+/** `meta` row holding the enrollment credential (see getJoinKey). */
+const JOIN_KEY_META = 'join_key';
+
+/** How far the join dedupe probes before giving up: name-2 ... name-1000. */
+const MAX_DEDUPE_SUFFIX = 1000;
 
 export interface AgentRow {
   id: number;
@@ -94,11 +101,80 @@ export class Store {
     this.db = db;
   }
 
+  // ------------------------------------------------------------------ meta
+
+  /**
+   * The join key. Stored PLAINTEXT in `meta` on purpose (ARCHITECTURE
+   * "Tokens"): the console must be able to re-display it at any time and the
+   * database lives on the operator's own machine. Per-identity agent tokens
+   * stay hashed.
+   */
+  getJoinKey(): string {
+    const row = this.db.prepare('SELECT value FROM meta WHERE key = ?').get(JOIN_KEY_META) as
+      | { value: string }
+      | undefined;
+    if (!row) throw new Error(`no '${JOIN_KEY_META}' row in meta: the switchboard was never initialised`);
+    return row.value;
+  }
+
+  /** Mint the join key on first boot; later boots reuse the stored one. */
+  ensureJoinKey(): string {
+    const row = this.db.prepare('SELECT value FROM meta WHERE key = ?').get(JOIN_KEY_META) as
+      | { value: string }
+      | undefined;
+    if (row) return row.value;
+    const key = mintJoinKey();
+    this.db.prepare('INSERT INTO meta(key, value) VALUES (?, ?)').run(JOIN_KEY_META, key);
+    return key;
+  }
+
+  /** Mint a replacement; the old key stops working the instant this returns. */
+  rotateJoinKey(): string {
+    const key = mintJoinKey();
+    this.db
+      .prepare('INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+      .run(JOIN_KEY_META, key);
+    return key;
+  }
+
   // ---------------------------------------------------------------- agents
 
   createAgent(name: string, tokenHash: string): AgentRow {
-    const existing = this.findAgentByName(name);
-    if (existing) throw conflict(`agent '${name}' already exists`);
+    this.assertNameFree(name);
+    return this.insertAgent(name, tokenHash);
+  }
+
+  /**
+   * Enrollment insert for POST /v1/join: probe `name`, `name-2`, `name-3`, ...
+   * and take the first free one — a join never fails on a name collision
+   * (ARCHITECTURE, POST /v1/join). Probe and insert share one transaction, and
+   * better-sqlite3 is synchronous, so nothing can claim the name in between.
+   */
+  createAgentDeduped(proposed: string, tokenHash: string): AgentRow {
+    const enroll = this.db.transaction((): AgentRow => {
+      const name = this.firstFreeName(proposed);
+      return this.insertAgent(name, tokenHash);
+    });
+    return enroll();
+  }
+
+  /**
+   * Rename an agent in place. NOT deduped — the operator chose this exact name
+   * on purpose, so a collision is a loud 409 with createAgent's own wording.
+   * Message attribution follows automatically: `messages` stores sender_id and
+   * every read joins to the current name.
+   */
+  renameAgent(agentId: number, name: string): void {
+    const rename = this.db.transaction((): void => {
+      this.assertNameFree(name);
+      this.db.prepare('UPDATE agents SET name = ? WHERE id = ?').run(name, agentId);
+    });
+    rename();
+  }
+
+  /** A name is taken by a live agent OR retired by a tombstone — both 409. */
+  private assertNameFree(name: string): void {
+    if (this.findAgentByName(name)) throw conflict(`agent '${name}' already exists`);
     const retired = this.db
       .prepare('SELECT 1 FROM agents WHERE name = ? AND deleted_at IS NOT NULL')
       .get(name);
@@ -107,6 +183,26 @@ export class Store {
         `the name '${name}' is retired: a deleted agent's message history still references it — pick another name`,
       );
     }
+  }
+
+  /** The proposed name, or the first free `-N` variant of it. */
+  private firstFreeName(proposed: string): string {
+    if (!this.nameExists(proposed)) return proposed;
+    for (let n = 2; n <= MAX_DEDUPE_SUFFIX; n++) {
+      const candidate = suffixSlug(proposed, n);
+      if (!this.nameExists(candidate)) return candidate;
+    }
+    throw conflict(
+      `'${proposed}' and its first ${MAX_DEDUPE_SUFFIX - 1} numbered variants are all taken — propose another name`,
+    );
+  }
+
+  /** Any row at all, live or tombstoned: `agents.name` is globally UNIQUE. */
+  private nameExists(name: string): boolean {
+    return this.db.prepare('SELECT 1 AS ok FROM agents WHERE name = ?').get(name) !== undefined;
+  }
+
+  private insertAgent(name: string, tokenHash: string): AgentRow {
     const created_at = nowIso();
     const info = this.db
       .prepare('INSERT INTO agents(name, token_hash, created_at, line_seq) VALUES (?, ?, ?, 0)')

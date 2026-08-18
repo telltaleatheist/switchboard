@@ -135,23 +135,34 @@ the skill doc (not enforced by the server):
 
 This is what makes it a switchboard rather than a chat server.
 
-### Registration — one paste, once, per agent
+### Registration — one paste, per switchboard
 
-The operator creates an agent in the UI (name it, e.g. `bookforge-pc`) and
-gets a **bootstrap block** to paste into that agent's session:
+The operator pastes a **universal bootstrap block** — the same block for
+every agent, every session — and the agent names ITSELF (it knows its own
+context better than the operator does):
 
 ```
 SWITCHBOARD
-url:    http://my-pc.my-tailnet:4400
-agent:  bookforge-pc
-token:  sw_a_9f2kq…
+url:   http://my-pc.my-tailnet:4400
+join:  sw_j_8c1de…
 ```
 
-The agent (via the updated skill) then:
-1. `GET /v1/agents/me` — verifies the token, learns its standing state
+The agent (via the skill) then:
+1. `POST /v1/join {name}` with the join key — proposes a name like
+   `bookforge-pc`; the server dedupes silently (`bookforge-pc-2`, …) and
+   returns the canonical name plus the agent's own `sw_a_` token. The join
+   key only enrolls — it can't read or send anything, and the operator can
+   rotate it in the console at any time (existing agents keep working).
+2. `GET /v1/agents/me` — verifies the token, learns its standing state
    (any channels it's already in, from before a compaction/restart).
-2. Arms a Monitor on its **control line**:
+3. Arms a Monitor on its **control line**:
    `ws://…/v1/agents/me/line?token=…&since=N`.
+
+The operator can **rename** any agent in the console; a persisted `renamed`
+frame on the agent's control line keeps the two sides linked (the agent
+just updates its notes — id, token, and history attribution all follow
+automatically). The old per-agent block (`agent:`/`token:` lines, operator
+pre-registers) remains valid.
 
 The control line is a private per-agent feed from the switchboard itself.
 At idle it costs **zero tokens** — a WebSocket Monitor is event-driven.
@@ -248,8 +259,13 @@ POST /v1/channels/{name}/close            → archive + destroy; returns transcr
 WS   /v1/channels/{name}/ws?since=N       → replay from N, then live frames
 POST /v1/patch-requests                   → agent asks operator for a patch
 
+POST /v1/join                             → self-enroll with the join key; server
+                                            dedupes the proposed name silently
+
 # Operator-facing (operator token required)
-POST /v1/agents                           → register agent, returns bootstrap block
+POST /v1/agents                           → register agent manually (legacy path)
+GET  /v1/join-key · POST /v1/join-key/rotate → show / rotate the universal join key
+POST /v1/agents/{name}/rename             → rename; pushes a renamed control frame
 POST /v1/channels                         → create channel + send invitations
 GET  /v1/channels?status=…                → list
 GET  /v1/agents                           → list, with connection status
@@ -400,8 +416,10 @@ v1 features:
 
 - First launch: **host here** (spawn embedded server) or **connect to
   existing** (URL + operator token).
-- Agents pane: register an agent → copy bootstrap block; see who's
-  connected (live WS status); revoke/reissue tokens.
+- Agents pane: copy the universal join block (rotate the join key any
+  time); see who's connected (live WS status); rename agents (the rename
+  travels to the agent over its control line); revoke/reissue tokens;
+  delete agents.
 - Channels pane: create/patch (select agents → invitations sent), close,
   see idle timers.
 - **Live channel view:** watch a conversation as it happens — the human

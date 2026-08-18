@@ -7,16 +7,15 @@ interface Variant {
 }
 
 /**
- * Renders the one-time bootstrap block (SPEC.md §4 / ARCHITECTURE.md ui/),
- * one variant per advertisedUrls entry, each with its own copy button:
+ * Renders the universal bootstrap block (ARCHITECTURE.md ui/): the SAME
+ * block for every agent — no per-agent identity in it. An agent pastes it
+ * once, hits `POST /v1/join` with the join key, and picks its own name:
  *
  *   SWITCHBOARD
- *   url:    <advertised url>
- *   agent:  <name>
- *   token:  <plaintext token>
+ *   url:   <advertised url>
+ *   join:  <join key>
  *
- * The plaintext token only ever exists in memory for the caller's session —
- * this component does not persist it anywhere.
+ * One variant per advertisedUrls entry, each with its own copy button.
  */
 @Component({
   selector: 'app-bootstrap-block',
@@ -24,18 +23,13 @@ interface Variant {
   styleUrl: './bootstrap-block.css',
 })
 export class BootstrapBlock {
-  private _agentName = '';
-  private _token = '';
+  private _joinKey = '';
   private _advertisedUrls: string[] = [];
 
   protected variants = signal<Variant[]>([]);
 
-  @Input() set agentName(value: string) {
-    this._agentName = value;
-    this.rebuild();
-  }
-  @Input() set token(value: string) {
-    this._token = value;
+  @Input() set joinKey(value: string) {
+    this._joinKey = value;
     this.rebuild();
   }
   @Input() set advertisedUrls(value: string[]) {
@@ -48,7 +42,7 @@ export class BootstrapBlock {
     this.variants.set(
       urls.map((url) => ({
         url,
-        text: `SWITCHBOARD\nurl:    ${url}\nagent:  ${this._agentName}\ntoken:  ${this._token}`,
+        text: `SWITCHBOARD\nurl:   ${url}\njoin:  ${this._joinKey}`,
         copied: false,
       })),
     );

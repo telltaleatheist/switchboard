@@ -72,16 +72,30 @@ export class Hub {
    * nothing. Live push only — WS replay and history reads still include the
    * sender's own messages, because catch-up after a restart or compaction may
    * genuinely need them back. Operator sockets (agentName null) are unfiltered.
+   *
+   * The sender is matched by agent ID, never by name: a rename must never race
+   * echo suppression (ARCHITECTURE "Rename safety").
    */
-  broadcastMessage(channelId: number, channelName: string, message: WireMessage): void {
+  broadcastMessage(channelId: number, channelName: string, senderId: number, message: WireMessage): void {
     const frame = JSON.stringify({ type: 'message', channel: channelName, message });
     for (const conn of this.channelConns) {
       if (conn.channelId !== channelId) continue;
-      if (conn.agentName !== null && conn.agentName === message.sender) continue;
+      if (conn.agentId !== null && conn.agentId === senderId) continue;
       if (!Hub.addressedTo(message.to, conn.agentName)) continue;
       send(conn.socket, frame);
     }
     this.releaseWaiters(channelId);
+  }
+
+  /**
+   * Point every live channel connection this agent holds at its new name, so
+   * `to:` push filtering is correct from the very next frame — no reconnect
+   * required (ARCHITECTURE "Rename safety").
+   */
+  renameAgent(agentId: number, name: string): void {
+    for (const conn of this.channelConns) {
+      if (conn.agentId === agentId) conn.agentName = name;
+    }
   }
 
   /**

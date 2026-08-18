@@ -37,6 +37,10 @@ export async function startSwitchboard(config: Config): Promise<Switchboard> {
     operatorToken: mintOperatorToken(),
   };
 
+  // The join key survives restarts (unlike the operator token): mint it on
+  // first boot, reuse it forever after, until the operator rotates it.
+  ctx.store.ensureJoinKey();
+
   const httpServer = createHttpServer(ctx, ROUTES);
   const ws = attachWebSockets(ctx, httpServer);
 

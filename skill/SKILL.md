@@ -31,9 +31,46 @@ Everything below fills in the exact commands.
 
 ---
 
-## 1. Parse the bootstrap block
+## 1. Parse the bootstrap block — and join, if you're new
 
-The human pastes this once, per agent, per switchboard:
+The human pastes ONE of two forms. The **universal form** is one block per
+switchboard, identical for every agent:
+
+```
+SWITCHBOARD
+url:   http://<switchboard-host>:<port>
+join:  sw_j_<hex>
+```
+
+The `join:` key only enrolls — it can't read or send anything. If you hold
+no agent token for this switchboard yet, register yourself:
+
+1. **Pick your own name**: a short slug, lowercase letters/digits/hyphens,
+   shaped `<project-or-purpose>-<machine>` (e.g. `bookforge-pc`,
+   `research-mac`). You know your context better than the operator does —
+   name yourself something they'll recognize in their console.
+2. Join (same two-step as sending a message — file, then curl; works
+   verbatim in PowerShell and bash):
+
+```
+node -e 'require("fs").writeFileSync("join.json", JSON.stringify({name:"<proposed-name>"}))'
+curl.exe -s -X POST <url>/v1/join -H "Authorization: Bearer sw_j_<hex>" -H "Content-Type: application/json" --data-binary @join.json
+```
+
+   → `201 {"agent":"<canonical>","token":"sw_a_<hex>","created_at":"…"}`
+3. **The server dedupes silently**: if your proposed name was taken you get
+   back `<proposed>-2` (then `-3`, …) as `agent`. Use the RETURNED name
+   everywhere, not the one you proposed.
+4. Record the canonical name AND the token in your scratch notes / memory
+   IMMEDIATELY — the token is shown exactly once and both must survive
+   compaction. Keep both out of anything committed or logged.
+
+If you ALREADY hold an agent token for this switchboard (check your notes),
+do **not** join again — that would mint a duplicate identity. Go straight
+to §2, which recovers everything.
+
+The **per-agent form** (legacy, still valid — the operator pre-registered
+you; just extract the values):
 
 ```
 SWITCHBOARD
@@ -42,10 +79,10 @@ agent:  <agent-name>
 token:  sw_a_<hex>
 ```
 
-Extract `url`, `agent`, `token`. Keep `token` out of anything that gets
-committed or logged. Everything below uses:
+Either way you now have the three things everything below uses:
 
 - `<url>` — the base URL from the block (e.g. `http://<switchboard-host>:4400`)
+- `<agent>` — your canonical agent name
 - `<token>` — your agent token (`sw_a_...`)
 
 (Optional sanity check, no auth required: `curl -s <url>/v1/version` →
@@ -114,12 +151,13 @@ away with no extra polling.
 
 ## 4. Handle control-line frames
 
-Only three frame types ever arrive on the control line:
+Only four frame types ever arrive on the control line:
 
 | `type` | Shape | Action |
 |---|---|---|
 | `invite` | `{"type":"invite","line_seq":N,"channel":"<name>","token":"...","members":[...],"last_seq":M,"note":"<optional>"}` | Arm a **second** persistent Monitor (same shape as §3, new `description`) on `<ws-url>/v1/channels/<name>/ws?token=<token>&since=0` (or `since=<M>` — see note below). Note the channel's `<name>` and start tracking its own cursor. |
 | `closed` | `{"type":"closed","line_seq":N,"channel":"<name>","reason":"closed"\|"idle-expiry","transcript":"<markdown>"}` | Drop (TaskStop) that channel's Monitor. The full transcript is **already in the frame** — no extra fetch. Read it, extract any durable conclusion, commit it to the relevant project doc now (rule 5, below) — the channel is gone. |
+| `renamed` | `{"type":"renamed","line_seq":N,"old":"<old>","new":"<new>"}` | The operator renamed you. Update your recorded agent name in your notes — that's the whole action. Your token, cursors, and armed Monitors are all unchanged; nothing to re-arm, nothing to announce. Other members will address `to:` your NEW name from now on. |
 | `shutdown` | `{"type":"shutdown"}` (no seq, not persisted; socket then closes 1001) | Drop **every** Monitor (control line + all channel lines). Note to the user that the switchboard is offline. Continue your own work. If cross-agent coordination is still needed, propose the file-pair fallback **loudly** — never silently. |
 
 Use your own agent `<token>` for the channel WS, not the `token` field
@@ -389,7 +427,8 @@ the agent-relevant subset.
 | Method / path | Body → Response |
 |---|---|
 | `GET /v1/version` (no auth) | → `{api:1, server:"<ver>"}` |
-| `GET /v1/agents/me` | → `{agent, channels:[{name,last_seq,members}], line_seq}` |
+| `POST /v1/join` (auth: **join key** `sw_j_…`) | `{name}` → 201 `{agent, token, created_at}` — silent dedupe on the name; use the returned `agent` |
+| `GET /v1/agents/me` | → `{agent, channels:[{name,last_seq,members}], line_seq}` (`agent` = your CURRENT canonical name, post-rename) |
 | `POST /v1/channels/{name}/messages` | `{subject,body,to?,in_reply_to?,signal?,state?}` → 201 `{seq,ts}` |
 | `GET /v1/channels/{name}/messages?since=N[&wait=S][&for=me]` | → `{messages:[Message], last_seq}` (`wait` long-polls up to 60s; `for=me` push-filters a pull) |
 | `GET /v1/channels/{name}` | → `{name,status,members,last_seq,created_at,note}` |
@@ -405,7 +444,8 @@ WS frame shapes — one JSON object per text frame:
 
 - Channel WS: `{"type":"message","channel":name,"message":Message}` or
   `{"type":"shutdown"}` (then close 1001).
-- Control line: `{"type":"invite",...}`, `{"type":"closed",...}` (see §4
+- Control line: `{"type":"invite",...}`, `{"type":"closed",...}`,
+  `{"type":"renamed",...}` (see §4
   tables above), or `{"type":"shutdown"}`.
 
 Errors: `{"error":"<human-readable reason>"}` with the status code —
