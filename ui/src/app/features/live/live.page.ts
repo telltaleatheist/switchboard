@@ -146,13 +146,19 @@ export class LivePage implements OnInit, OnDestroy {
     const name = this.selectedChannel();
     const text = this.composeText().trim();
     if (!name || text.length === 0 || this.sending()) return;
-    const firstLine = (text.split('\n', 1)[0] ?? '').trim();
+    // First line → subject, remainder → body. A single-line message has to
+    // carry the same text in both (both fields are required); the feed
+    // suppresses the body when it merely repeats the subject.
+    const newline = text.indexOf('\n');
+    const firstLine = (newline === -1 ? text : text.slice(0, newline)).trim();
     const subject = firstLine.length > 100 ? `${firstLine.slice(0, 97)}…` : firstLine;
+    const rest = newline === -1 ? '' : text.slice(newline + 1).trim();
+    const body = rest.length > 0 ? rest : text;
     this.sending.set(true);
     this.sendError.set(null);
     try {
       const to = this.recipient();
-      await this.api.sendChannelMessage(name, subject, text, to ? [to] : undefined);
+      await this.api.sendChannelMessage(name, subject, body, to ? [to] : undefined);
       this.composeText.set('');
     } catch (err) {
       this.sendError.set(err instanceof ApiError ? err.message : 'Failed to send the message.');

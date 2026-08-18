@@ -63,7 +63,9 @@
               }
             </header>
             <div class="subject">{{ m.subject }}</div>
-            <pre class="body">{{ m.body }}</pre>
+            @if (m.body.trim() !== m.subject.trim()) {
+              <pre class="body">{{ m.body }}</pre>
+            }
           </article>
         }
       </div>
