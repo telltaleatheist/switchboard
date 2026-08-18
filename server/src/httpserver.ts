@@ -14,6 +14,22 @@ import { decodeUtf8Strict } from './util';
 
 export function createHttpServer(ctx: Ctx, routes: readonly Route[]): http.Server {
   const server = http.createServer((req, res) => {
+    // CORS: browser-origin callers are legitimate clients (the Electron
+    // renderer and ng-serve dev UI are cross-origin to this server, and
+    // browser-extension agents may join later). Auth is bearer-token, never
+    // cookie-based, so a permissive origin policy exposes nothing a caller
+    // without a token could use.
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Expose-Headers', 'Idempotency-Replayed');
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Authorization, Content-Type, Idempotency-Key',
+        'Access-Control-Max-Age': '86400',
+      });
+      res.end();
+      return;
+    }
     handle(ctx, routes, req, res).catch((err: unknown) => {
       respondError(res, err);
     });

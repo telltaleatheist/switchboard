@@ -739,3 +739,27 @@ test('connection status is reported for agents', async () => {
   const beta = list.json.agents.find((a) => a.name === 'beta');
   assert.equal(beta.connected, false);
 });
+
+test('CORS: preflight succeeds and responses carry the allow-origin header', async () => {
+  // Browser-origin clients (Electron renderer, ng serve, browser extensions)
+  // preflight non-simple requests; without these headers every UI call fails.
+  const preflight = await fetch(`http://127.0.0.1:${h.port}/v1/channels/anything/messages`, {
+    method: 'OPTIONS',
+    headers: {
+      Origin: 'http://localhost:4200',
+      'Access-Control-Request-Method': 'POST',
+      'Access-Control-Request-Headers': 'authorization,content-type,idempotency-key',
+    },
+  });
+  assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers.get('access-control-allow-origin'), '*');
+  const allowedHeaders = (preflight.headers.get('access-control-allow-headers') ?? '').toLowerCase();
+  for (const name of ['authorization', 'content-type', 'idempotency-key']) {
+    assert.ok(allowedHeaders.includes(name), `preflight must allow the ${name} header`);
+  }
+
+  const versioned = await call(h, 'GET', '/v1/version', {});
+  assert.equal(versioned.headers.get('access-control-allow-origin'), '*');
+  const exposed = (versioned.headers.get('access-control-expose-headers') ?? '').toLowerCase();
+  assert.ok(exposed.includes('idempotency-replayed'), 'Idempotency-Replayed must be readable from a browser');
+});

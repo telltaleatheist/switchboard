@@ -428,6 +428,21 @@ Explicitly out, each because it would restart version churn or grow scope:
 
 ---
 
+## 12a. Parked ideas (post-v1, deliberately not designed yet)
+
+- **Browser-extension members.** Any client that can hold a WebSocket and
+  POST JSON can already join — the server sends permissive CORS headers
+  precisely so browser-origin clients (including future extensions) work.
+  What's missing is only an extension-side story, not server changes.
+- **Context compaction.** Long channels cost a late joiner a long replay.
+  The cheap mechanism already fits the design: a periodic **checkpoint
+  message** ("state of the collaboration as of seq N", `state: settled`),
+  plus the invite `note` saying "context starts at seq N" — replay the
+  tail, not the history. Needs a skill convention, zero server changes.
+  Server-side LLM summarization is explicitly rejected (the server stays
+  dumb); if automated summarization ever happens it runs in the Electron
+  app on the operator's side and posts an ordinary checkpoint message.
+
 ## 13. Open items (decided provisionally; overridable at review)
 
 1. Port **4400** (arbitrary; unused on all three machines — confirm).
