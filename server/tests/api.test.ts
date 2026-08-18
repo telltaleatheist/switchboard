@@ -326,11 +326,12 @@ test('message validation fails loudly', async () => {
   assert.equal(brokenJson.status, 400);
   assert.match(brokenJson.json.error, /not valid JSON/);
 
-  const operatorSend = await call(h, 'POST', '/v1/channels/cursors/messages', {
-    token: h.operatorToken,
+  // The operator CAN speak (as the reserved 'operator' sender — see the
+  // dedicated test); a message with no auth at all cannot.
+  const anonSend = await call(h, 'POST', '/v1/channels/cursors/messages', {
     body: { subject: 's', body: 'b' },
   });
-  assert.equal(operatorSend.status, 403);
+  assert.equal(anonSend.status, 401);
 });
 
 test('invalid UTF-8 in the body is rejected with 400', async () => {
@@ -636,6 +637,47 @@ test('adding members to an open channel invites only the newcomers', async () =>
     assert.equal(closed.status, 409);
   } finally {
     betaLine.close();
+  }
+});
+
+test('the operator speaks as the reserved sender "operator"', async () => {
+  await createChannel('op-voice', ['alpha', 'beta']);
+  const alphaWs = await FrameLog.open(h, `/v1/channels/op-voice/ws?token=${alphaToken}&since=0`);
+  try {
+    const sent = await call<{ seq: number }>(h, 'POST', '/v1/channels/op-voice/messages', {
+      token: h.operatorToken,
+      body: { subject: 'from the console', body: 'both of you: status?' },
+    });
+    assert.equal(sent.status, 201);
+    assert.equal(sent.json.seq, 1);
+
+    // Members are pushed the message, attributed to 'operator'.
+    const frame = await alphaWs.next();
+    assert.equal(frame.message.sender, 'operator');
+    assert.equal(frame.message.subject, 'from the console');
+
+    // The reserved name cannot be claimed by anyone:
+    const reg = await call(h, 'POST', '/v1/agents', { token: h.operatorToken, body: { name: 'operator' } });
+    assert.equal(reg.status, 409);
+    const ren = await call(h, 'POST', '/v1/agents/alpha/rename', {
+      token: h.operatorToken,
+      body: { name: 'operator' },
+    });
+    assert.equal(ren.status, 409);
+    const joinKey = (await call<{ join_key: string }>(h, 'GET', '/v1/join-key', { token: h.operatorToken })).json
+      .join_key;
+    const joined = await call<{ agent: string }>(h, 'POST', '/v1/join', {
+      token: joinKey,
+      body: { name: 'operator' },
+    });
+    assert.equal(joined.status, 201);
+    assert.equal(joined.json.agent, 'operator-2', 'a join proposing the reserved name dedupes silently');
+
+    // And the reserved row never appears in the roster.
+    const list = await call<{ agents: { name: string }[] }>(h, 'GET', '/v1/agents', { token: h.operatorToken });
+    assert.ok(!list.json.agents.some((a) => a.name === 'operator'));
+  } finally {
+    alphaWs.close();
   }
 });
 

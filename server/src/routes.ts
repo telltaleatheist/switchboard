@@ -169,10 +169,14 @@ const getLineEvents = async (ctx: Ctx, req: Req): Promise<Result> => {
 
 const postMessage = (ctx: Ctx, req: Req): Result => {
   assertNoUnknownQuery(req.query, []);
-  if (req.principal.kind !== 'agent') {
-    throw forbidden('messages are sent by agents; the operator token has no agent identity');
+  if (req.principal.kind === 'none') {
+    throw forbidden('messages require an agent or operator token');
   }
-  const sender = req.principal.agent;
+  // The operator speaks as the reserved 'operator' identity — a real sender
+  // row, so attribution/transcripts need no special case. Not a member of
+  // anything; accessChannel already waives membership for operator auth.
+  const sender =
+    req.principal.kind === 'agent' ? req.principal.agent : ctx.store.ensureOperatorAgent();
   const channelName = req.params['name'] as string;
   const channel = accessChannel(ctx, req.principal, channelName);
   if (channel.status !== 'open') throw conflict(`channel '${channelName}' is closed`);
@@ -587,7 +591,9 @@ export const ROUTES: readonly Route[] = [
   // server's 'upgrade' event and never reach this router, so the same path
   // serves both without conflict.
   { method: 'GET', pattern: '/v1/agents/me/line', auth: 'agent', handler: getLineEvents },
-  { method: 'POST', pattern: '/v1/channels/{name}/messages', auth: 'agent', handler: postMessage },
+  // auth 'any': agents send as themselves, the operator as the reserved
+  // 'operator' identity (see postMessage).
+  { method: 'POST', pattern: '/v1/channels/{name}/messages', auth: 'any', handler: postMessage },
   { method: 'GET', pattern: '/v1/channels/{name}/messages', auth: 'any', handler: getMessages },
   { method: 'GET', pattern: '/v1/channels/{name}', auth: 'any', handler: getChannel },
   { method: 'POST', pattern: '/v1/channels/{name}/close', auth: 'any', handler: postChannelClose },

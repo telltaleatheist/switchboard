@@ -253,7 +253,9 @@ WS   /v1/agents/me/line?since=N           → control line (invites, closures)
 GET  /v1/agents/me/line?since=N[&wait=30] → control line as HTTP long-poll, for
                                             harnesses that can't open a WS to a
                                             private-range address (same frames)
-POST /v1/channels/{name}/messages         → send; returns {seq, ts}
+POST /v1/channels/{name}/messages         → send; returns {seq, ts}; the
+                                            operator token sends as the
+                                            reserved sender "operator"
 GET  /v1/channels/{name}/messages?since=N[&wait=30][&for=me]
                                           → catch-up; wait= long-polls; for=me
                                             mirrors push exactly (addressed to

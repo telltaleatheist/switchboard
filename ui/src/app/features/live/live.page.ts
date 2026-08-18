@@ -27,6 +27,10 @@ export class LivePage implements OnInit, OnDestroy {
   protected readonly closeInfo = signal<{ code: number; reason: string } | null>(null);
   protected readonly shutdownNotice = signal(false);
 
+  protected readonly composeText = signal('');
+  protected readonly sending = signal(false);
+  protected readonly sendError = signal<string | null>(null);
+
   private ws: WebSocket | null = null;
   private stopPolling?: () => void;
   private stickToBottom = true;
@@ -120,5 +124,29 @@ export class LivePage implements OnInit, OnDestroy {
 
   protected toLabel(to: string[] | null): string {
     return to && to.length > 0 ? to.join(', ') : 'everyone';
+  }
+
+  /**
+   * Send to everyone in the channel as the reserved 'operator' sender. The
+   * first line becomes the subject (protocol rule 1: the subject states the
+   * conclusion); the full text is the body. The message appears in the feed
+   * via our own WS — operator sockets are unfiltered.
+   */
+  protected async sendMessage(): Promise<void> {
+    const name = this.selectedChannel();
+    const text = this.composeText().trim();
+    if (!name || text.length === 0 || this.sending()) return;
+    const firstLine = (text.split('\n', 1)[0] ?? '').trim();
+    const subject = firstLine.length > 100 ? `${firstLine.slice(0, 97)}…` : firstLine;
+    this.sending.set(true);
+    this.sendError.set(null);
+    try {
+      await this.api.sendChannelMessage(name, subject, text);
+      this.composeText.set('');
+    } catch (err) {
+      this.sendError.set(err instanceof ApiError ? err.message : 'Failed to send the message.');
+    } finally {
+      this.sending.set(false);
+    }
   }
 }

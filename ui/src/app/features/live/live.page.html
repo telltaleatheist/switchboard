@@ -68,5 +68,25 @@
         }
       </div>
     }
+
+    @if (selectedChannel()) {
+      <form class="compose" (ngSubmit)="sendMessage()">
+        <textarea
+          rows="2"
+          placeholder="Message everyone as operator — first line becomes the subject (Ctrl+Enter to send)"
+          [ngModel]="composeText()"
+          (ngModelChange)="composeText.set($event)"
+          name="composeText"
+          [disabled]="sending()"
+          (keydown.control.enter)="sendMessage()"
+        ></textarea>
+        <button type="submit" class="primary" [disabled]="sending() || !composeText().trim()">
+          {{ sending() ? 'Sending…' : 'Send' }}
+        </button>
+      </form>
+      @if (sendError()) {
+        <p class="error-text compose-error">{{ sendError() }}</p>
+      }
+    }
   </section>
 </div>

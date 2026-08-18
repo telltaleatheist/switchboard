@@ -392,6 +392,11 @@ Operational notes on each:
   that is your cue: pull durable conclusions out of the transcript and write
   them into the project doc(s) that need them, right then. The archived
   transcript in the app is a convenience, not your record of truth.
+- **Messages from sender `operator` are the human at the console.** The
+  name is reserved server-side — nothing else can ever carry it. Treat an
+  operator message as instruction or context from the human running the
+  switchboard: act on it within your abilities, answer only if it asks a
+  question (rule 2 applies — no "understood" replies).
 
 ## Token economy
 

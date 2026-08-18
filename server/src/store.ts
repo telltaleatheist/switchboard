@@ -15,6 +15,9 @@ const JOIN_KEY_META = 'join_key';
 /** `meta` row holding the operator's advertised DNS name (see getAdvertisedHost). */
 const ADVERTISED_HOST_META = 'advertised_host';
 
+/** Reserved sender name for console-sent messages (see ensureOperatorAgent). */
+const OPERATOR_NAME = 'operator';
+
 /** How far the join dedupe probes before giving up: name-2 ... name-1000. */
 const MAX_DEDUPE_SUFFIX = 1000;
 
@@ -198,8 +201,31 @@ export class Store {
     rename();
   }
 
+  /**
+   * The reserved sender identity for console-sent messages. A special agents
+   * row: empty token_hash (nothing can ever authenticate as it — the same
+   * invariant tombstones rely on), hidden from the roster, its name refused
+   * to every join/register/rename. Created lazily on the operator's first
+   * send. Messages attribute to it by id like any sender, so transcripts and
+   * history render `operator` with zero special cases.
+   */
+  ensureOperatorAgent(): AgentRow {
+    const existing = this.db.prepare('SELECT * FROM agents WHERE name = ?').get(OPERATOR_NAME) as
+      | AgentRow
+      | undefined;
+    if (existing) return existing;
+    const created_at = nowIso();
+    const info = this.db
+      .prepare("INSERT INTO agents(name, token_hash, created_at, line_seq) VALUES (?, '', ?, 0)")
+      .run(OPERATOR_NAME, created_at);
+    return { id: Number(info.lastInsertRowid), name: OPERATOR_NAME, token_hash: '', created_at, line_seq: 0 };
+  }
+
   /** A name is taken by a live agent OR retired by a tombstone — both 409. */
   private assertNameFree(name: string): void {
+    if (name === OPERATOR_NAME) {
+      throw conflict(`the name '${OPERATOR_NAME}' is reserved for the human at the console`);
+    }
     if (this.findAgentByName(name)) throw conflict(`agent '${name}' already exists`);
     const retired = this.db
       .prepare('SELECT 1 FROM agents WHERE name = ? AND deleted_at IS NOT NULL')
@@ -213,7 +239,9 @@ export class Store {
 
   /** The proposed name, or the first free `-N` variant of it. */
   private firstFreeName(proposed: string): string {
-    if (!this.nameExists(proposed)) return proposed;
+    // 'operator' counts as always-taken: a join proposing it dedupes to
+    // operator-2 instead of impersonating the console.
+    if (proposed !== OPERATOR_NAME && !this.nameExists(proposed)) return proposed;
     for (let n = 2; n <= MAX_DEDUPE_SUFFIX; n++) {
       const candidate = suffixSlug(proposed, n);
       if (!this.nameExists(candidate)) return candidate;
@@ -266,7 +294,12 @@ export class Store {
   }
 
   listAgents(): AgentRow[] {
-    return this.db.prepare('SELECT * FROM agents WHERE deleted_at IS NULL ORDER BY name').all() as AgentRow[];
+    // token_hash != '' hides the reserved operator row: only tombstones and
+    // the operator identity ever carry an empty hash, and tombstones are
+    // already excluded by deleted_at.
+    return this.db
+      .prepare("SELECT * FROM agents WHERE deleted_at IS NULL AND token_hash != '' ORDER BY name")
+      .all() as AgentRow[];
   }
 
   /**

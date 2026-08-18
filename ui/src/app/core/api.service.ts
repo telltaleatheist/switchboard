@@ -113,6 +113,11 @@ export class ApiService {
     return this.request('POST', `/v1/channels/${encodeURIComponent(name)}/members`, { members });
   }
 
+  /** Speak in a channel as the reserved 'operator' sender (to: omitted = everyone). */
+  sendChannelMessage(name: string, subject: string, body: string): Promise<{ seq: number; ts: string }> {
+    return this.request('POST', `/v1/channels/${encodeURIComponent(name)}/messages`, { subject, body });
+  }
+
   getChannelMessages(name: string, since: number): Promise<MessagesPage> {
     return this.request('GET', `/v1/channels/${encodeURIComponent(name)}/messages?since=${since}`);
   }
