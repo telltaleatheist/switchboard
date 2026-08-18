@@ -30,12 +30,22 @@ interface Waiter {
   timer: NodeJS.Timeout;
 }
 
+/**
+ * How recently an agent must have long-polled its control line to count as
+ * connected. Watcher loops re-request at most ~61s apart (wait=60 plus one
+ * round trip), so 90s covers a healthy loop with margin without letting a
+ * dead one linger long.
+ */
+const LINE_POLL_LIVENESS_MS = 90_000;
+
 export class Hub {
   private readonly channelConns = new Set<ChannelConnection>();
   private readonly lineConns = new Set<LineConnection>();
   private readonly waiters = new Map<number, Set<Waiter>>();
   /** Long-poll waiters on control lines, keyed by agent id (see waitForLineNews). */
   private readonly lineWaiters = new Map<number, Set<Waiter>>();
+  /** Last control-line long-poll per agent id — the HTTP watcher's heartbeat. */
+  private readonly lastLinePoll = new Map<number, number>();
 
   addChannelConnection(conn: ChannelConnection): void {
     this.channelConns.add(conn);
@@ -53,11 +63,22 @@ export class Hub {
     this.lineConns.delete(conn);
   }
 
-  /** True when the agent holds at least one open socket (line or channel). */
+  /** Stamp a control-line long-poll (called by GET /v1/agents/me/line). */
+  markLinePoll(agentId: number): void {
+    this.lastLinePoll.set(agentId, Date.now());
+  }
+
+  /**
+   * True when the agent has a live receive path: an open socket (line or
+   * channel), or a control-line long-poll within the liveness window —
+   * HTTP watchers are just as connected as WS ones, they only look
+   * different from here.
+   */
   isAgentConnected(agentId: number): boolean {
     for (const c of this.lineConns) if (c.agentId === agentId) return true;
     for (const c of this.channelConns) if (c.agentId === agentId) return true;
-    return false;
+    const last = this.lastLinePoll.get(agentId);
+    return last !== undefined && Date.now() - last < LINE_POLL_LIVENESS_MS;
   }
 
   /** Should this recipient be woken by a message with this `to` list? */
@@ -130,6 +151,7 @@ export class Hub {
 
   /** Close every socket a (just-deleted) agent holds — line and channel. */
   closeAgentSockets(agentId: number, reason: string): void {
+    this.lastLinePoll.delete(agentId);
     for (const conn of [...this.lineConns]) {
       if (conn.agentId !== agentId) continue;
       try {

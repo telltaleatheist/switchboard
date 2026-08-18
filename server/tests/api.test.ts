@@ -585,6 +585,27 @@ test('control line long-poll: replay with injected token, wake on invite, empty 
   assert.equal(operator.status, 403);
 });
 
+test('a long-polling agent shows as connected in the operator listing', async () => {
+  const joined = await call<{ agent: string; token: string }>(h, 'POST', '/v1/join', {
+    token: (await call<{ join_key: string }>(h, 'GET', '/v1/join-key', { token: h.operatorToken })).json.join_key,
+    body: { name: 'http-watcher' },
+  });
+  assert.equal(joined.status, 201);
+
+  const listAgents = async (): Promise<any> => {
+    const res = await call<{ agents: any[] }>(h, 'GET', '/v1/agents', { token: h.operatorToken });
+    return res.json.agents.find((a) => a.name === 'http-watcher');
+  };
+
+  // Freshly joined, no watcher of any kind yet: offline.
+  assert.equal((await listAgents()).connected, false);
+
+  // One control-line long-poll (the HTTP watcher's request shape) is the
+  // heartbeat that flips it to connected — no WebSocket involved.
+  await call(h, 'GET', '/v1/agents/me/line?since=0', { token: joined.json.token });
+  assert.equal((await listAgents()).connected, true);
+});
+
 // ------------------------------------------------------- advertised host
 
 test('advertised host: set, get, clear, validate, operator-only', async () => {

@@ -147,6 +147,9 @@ const getLineEvents = async (ctx: Ctx, req: Req): Promise<Result> => {
   const agent = req.principal.agent;
   const token = req.principal.token;
   const since = queryInt(req.query, 'since', 0);
+  // The HTTP watcher's heartbeat: this is what makes a long-polling agent
+  // show as connected in the console (hub.isAgentConnected).
+  ctx.hub.markLinePoll(agent.id);
 
   const waitRaw = req.query.get('wait');
   const wait = waitRaw === null ? 0 : queryInt(req.query, 'wait', 0);
