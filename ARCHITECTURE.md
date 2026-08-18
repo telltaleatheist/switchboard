@@ -96,7 +96,7 @@ Agent-token endpoints:
 | `GET /v1/agents/me` | → `{agent, channels:[{name, last_seq, members:[names]}], line_seq}` |
 | `POST /v1/channels/{name}/messages` | `{subject, body, to?, in_reply_to?, signal?, state?}` → 201 `{seq, ts}` |
 | `GET /v1/channels/{name}/messages?since=N[&wait=S][&for=me]` | → `{messages:[Message], last_seq}`; `wait` long-polls (max 60 s) when no news; `for=me` applies push filtering to pull |
-| `GET /v1/channels/{name}` | → `{name, status, members, last_seq, created_at, note}` |
+| `GET /v1/channels/{name}` | → `{name, status, members, last_seq, created_at, note, last_message_at}` (`last_message_at` ISO-8601 or null — the UI's idle display needs it) |
 | `POST /v1/channels/{name}/close` | `{}` → `{transcript}` (also archives + pushes `closed` line frames) |
 | `POST /v1/patch-requests` | `{with:[names], purpose}` → 201 `{id, status:"pending"}` |
 
@@ -108,8 +108,8 @@ Operator-token endpoints (agent tokens get 403):
 | `POST /v1/agents/{name}/reissue` | → `{name, token}` |
 | `GET /v1/agents` | → `{agents:[{name, created_at, connected:bool, channels:[names]}]}` |
 | `POST /v1/channels` | `{name, members:[names], note?}` → 201 `{name, invited:[names]}` (pushes invites) |
-| `GET /v1/channels?status=open\|closed` | → `{channels:[...]}` |
-| `GET /v1/patch-requests?status=pending` | → `{requests:[...]}` |
+| `GET /v1/channels?status=open\|closed` | → `{channels:[...]}` (each item: same shape as `GET /v1/channels/{name}`, incl. `last_message_at`) |
+| `GET /v1/patch-requests?status=pending` | → `{requests:[{id, requester, with:[names], purpose, status, created_at}]}` (`requester` = name resolved from requester_id, mirroring how `sender` resolves on messages) |
 | `POST /v1/patch-requests/{id}/approve` | `{name?}` → creates channel + invites (requester + with) |
 | `POST /v1/patch-requests/{id}/deny` | → `{}` |
 | `GET /v1/archives` / `GET /v1/archives/{id}` | list / full transcript |

@@ -1,0 +1,43 @@
+.variants {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.variant {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-inset);
+  overflow: hidden;
+}
+
+.variant-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.35rem 0.6rem;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+}
+
+.variant-url {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.block {
+  margin: 0;
+  padding: 0.75rem 0.9rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  white-space: pre;
+  overflow-x: auto;
+  color: var(--text);
+}
+
+.copy-btn {
+  font-size: 0.75rem;
+  padding: 0.2rem 0.6rem;
+}

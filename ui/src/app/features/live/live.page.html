@@ -1,0 +1,72 @@
+<div class="live-layout">
+  <section class="card toolbar">
+    <label class="channel-select">
+      Channel
+      <select
+        [ngModel]="selectedChannel() ?? ''"
+        (ngModelChange)="selectChannel($event)"
+        name="liveChannel"
+      >
+        <option value="" disabled>Select a channel…</option>
+        @for (ch of channels(); track ch.name) {
+          <option [value]="ch.name">{{ ch.name }}</option>
+        }
+      </select>
+    </label>
+
+    @if (channelsError()) {
+      <span class="error-text">{{ channelsError() }}</span>
+    }
+
+    @if (selectedChannel()) {
+      <span class="badge dot" [class.online]="wsStatus() === 'open'" [class.offline]="wsStatus() !== 'open'">
+        {{ wsStatus() }}
+      </span>
+      @if (wsStatus() === 'closed' || wsStatus() === 'error') {
+        <button type="button" (click)="reconnect()">Reconnect</button>
+      }
+      @if (closeInfo(); as info) {
+        <span class="dim hint">closed: code {{ info.code }} — {{ info.reason }}</span>
+      }
+      @if (shutdownNotice()) {
+        <span class="badge signal">server shutdown announced</span>
+      }
+    }
+  </section>
+
+  <section class="card feed-card">
+    @if (!selectedChannel()) {
+      <p class="empty">Select an open channel above to watch it live.</p>
+    } @else if (messages().length === 0 && wsStatus() === 'open') {
+      <p class="empty">Connected — no messages yet (replay from seq 0 was empty).</p>
+    } @else if (messages().length === 0 && wsStatus() === 'connecting') {
+      <p class="empty">Connecting…</p>
+    } @else {
+      <div class="feed" #scrollArea (scroll)="onScroll()">
+        @for (m of messages(); track m.seq) {
+          <article class="message">
+            <header class="message-head">
+              <span class="mono sender">{{ m.sender }}</span>
+              <span class="dim seq">#{{ m.seq }}</span>
+              <span class="dim ts">{{ m.ts | relativeTime }}</span>
+              @if (m.in_reply_to !== null) {
+                <span class="dim">↩ #{{ m.in_reply_to }}</span>
+              }
+              <span class="badge to-badge">to: {{ toLabel(m.to) }}</span>
+              @if (m.signal) {
+                <span class="badge signal">{{ m.signal }}</span>
+              }
+              @if (m.state) {
+                <span class="badge" [class.settled]="m.state === 'settled'" [class.withdrawn]="m.state === 'withdrawn'">
+                  {{ m.state }}
+                </span>
+              }
+            </header>
+            <div class="subject">{{ m.subject }}</div>
+            <pre class="body">{{ m.body }}</pre>
+          </article>
+        }
+      </div>
+    }
+  </section>
+</div>

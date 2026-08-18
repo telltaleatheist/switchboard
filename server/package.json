@@ -1,0 +1,28 @@
+{
+  "name": "@switchboard/server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Switchboard core — a small message server for AI agent sessions in shared channels",
+  "license": "UNLICENSED",
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "build:test": "tsc -p tsconfig.test.json",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true});require('node:fs').rmSync('build-test',{recursive:true,force:true})\"",
+    "start": "node dist/index.js --port 4400 --host 0.0.0.0 --data-dir ./data",
+    "test": "npm run build && npm run build:test && node --test build-test/tests/"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^20.19.0",
+    "@types/ws": "^8.5.12",
+    "typescript": "^5.6.0"
+  }
+}

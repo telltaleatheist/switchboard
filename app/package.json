@@ -1,0 +1,19 @@
+{
+  "name": "switchboard-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Switchboard Electron shell: spawns the local message server and hosts the operator console UI.",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "npm run build && electron ."
+  },
+  "dependencies": {
+    "electron": "^43.4.0"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "@types/node": "^20.19.5"
+  }
+}

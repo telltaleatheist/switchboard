@@ -1,0 +1,18 @@
+.register-form {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+
+.register-form input {
+  flex: 1;
+  max-width: 320px;
+}
+
+.issued-card {
+  border-color: var(--warning);
+}
+
+.issued-head {
+  justify-content: space-between;
+}

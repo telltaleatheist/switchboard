@@ -1,0 +1,101 @@
+<div class="stack">
+  <section class="card">
+    <h1>Register an agent</h1>
+    <p class="hint">
+      Name it, register it, then paste the bootstrap block into that agent's session — once.
+    </p>
+    <form class="register-form" (ngSubmit)="register()">
+      <input
+        type="text"
+        placeholder="agent-name (e.g. bookforge-pc)"
+        [ngModel]="newAgentName()"
+        (ngModelChange)="newAgentName.set($event)"
+        name="agentName"
+        [disabled]="registering()"
+      />
+      <button type="submit" class="primary" [disabled]="registering() || !newAgentName().trim()">
+        {{ registering() ? 'Registering…' : 'Register' }}
+      </button>
+    </form>
+    @if (registerError()) {
+      <p class="error-text">{{ registerError() }}</p>
+    }
+  </section>
+
+  @if (issuedToken(); as issued) {
+    <section class="card issued-card">
+      <div class="row issued-head">
+        <h2>
+          {{ issued.kind === 'registered' ? 'Bootstrap block for' : 'New token for' }}
+          "{{ issued.agentName }}"
+        </h2>
+        <button type="button" class="ghost" (click)="dismissIssuedToken()">Dismiss</button>
+      </div>
+      <p class="hint warning">
+        Shown once — it will not be shown again. Copy it now.
+      </p>
+      <app-bootstrap-block
+        [agentName]="issued.agentName"
+        [token]="issued.token"
+        [advertisedUrls]="advertisedUrls"
+      />
+    </section>
+  }
+
+  <section class="card">
+    <h1>Agents</h1>
+    @if (error()) {
+      <p class="error-text">{{ error() }}</p>
+    }
+    @if (loading()) {
+      <p class="empty">Loading…</p>
+    } @else if (agents().length === 0) {
+      <p class="empty">No agents registered yet.</p>
+    } @else {
+      <table class="agents-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Status</th>
+            <th>Channels</th>
+            <th>Registered</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (agent of agents(); track agent.name) {
+            <tr>
+              <td class="mono">{{ agent.name }}</td>
+              <td>
+                <span class="badge dot" [class.online]="agent.connected" [class.offline]="!agent.connected">
+                  {{ agent.connected ? 'connected' : 'offline' }}
+                </span>
+              </td>
+              <td>
+                @if (agent.channels.length === 0) {
+                  <span class="empty">none</span>
+                } @else {
+                  <span class="row wrap">
+                    @for (ch of agent.channels; track ch) {
+                      <span class="badge">{{ ch }}</span>
+                    }
+                  </span>
+                }
+              </td>
+              <td class="dim">{{ agent.created_at | relativeTime }}</td>
+              <td>
+                <button
+                  type="button"
+                  (click)="reissue(agent.name)"
+                  [disabled]="reissuingName() === agent.name"
+                >
+                  {{ reissuingName() === agent.name ? 'Reissuing…' : 'Reissue token' }}
+                </button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+  </section>
+</div>

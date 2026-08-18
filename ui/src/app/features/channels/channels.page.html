@@ -1,0 +1,115 @@
+<div class="stack">
+  <section class="card">
+    <h1>Create / patch a channel</h1>
+    <p class="hint">Pick a name, select the agents to patch together, add an optional note.</p>
+
+    <form class="create-form" (ngSubmit)="createChannel()">
+      <label>
+        Channel name
+        <input
+          type="text"
+          placeholder="bookforge-sync"
+          [ngModel]="newName()"
+          (ngModelChange)="newName.set($event)"
+          name="channelName"
+        />
+      </label>
+
+      <label>
+        Members
+        @if (agents().length === 0) {
+          <span class="empty">No agents registered yet — register one first.</span>
+        } @else {
+          <div class="member-picker">
+            @for (agent of agents(); track agent.name) {
+              <label class="member-option">
+                <input
+                  type="checkbox"
+                  [checked]="selectedMembers().has(agent.name)"
+                  (change)="toggleMember(agent.name)"
+                />
+                {{ agent.name }}
+              </label>
+            }
+          </div>
+        }
+      </label>
+
+      <label>
+        Note (optional)
+        <textarea
+          rows="2"
+          placeholder="what this collaboration is for"
+          [ngModel]="note()"
+          (ngModelChange)="note.set($event)"
+          name="note"
+        ></textarea>
+      </label>
+
+      <button
+        type="submit"
+        class="primary"
+        [disabled]="creating() || !newName().trim() || selectedMembers().size === 0"
+      >
+        {{ creating() ? 'Creating…' : 'Create channel' }}
+      </button>
+      @if (createError()) {
+        <p class="error-text">{{ createError() }}</p>
+      }
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="section-head">
+      <h1>Open channels</h1>
+    </div>
+    @if (error()) {
+      <p class="error-text">{{ error() }}</p>
+    }
+    @if (loading()) {
+      <p class="empty">Loading…</p>
+    } @else if (channels().length === 0) {
+      <p class="empty">No open channels.</p>
+    } @else {
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Members</th>
+            <th>Messages</th>
+            <th>Last activity</th>
+            <th>Note</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (ch of channels(); track ch.name) {
+            <tr>
+              <td class="mono">{{ ch.name }}</td>
+              <td>
+                <span class="row wrap">
+                  @for (m of ch.members; track m) {
+                    <span class="badge">{{ m }}</span>
+                  }
+                </span>
+              </td>
+              <td class="dim">{{ ch.last_seq }}</td>
+              <td class="dim">{{ lastActivity(ch) | relativeTime }}</td>
+              <td class="dim">{{ ch.note || '—' }}</td>
+              <td>
+                <button
+                  type="button"
+                  class="danger"
+                  (click)="closeChannel(ch.name)"
+                  [disabled]="closingName() === ch.name"
+                >
+                  {{ closingName() === ch.name ? 'Closing…' : 'Close' }}
+                </button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+  </section>
+</div>

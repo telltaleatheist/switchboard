@@ -1,0 +1,70 @@
+@if (configService.state(); as state) {
+@switch (state.status) {
+  @case ('loading') {
+    <div class="gate">
+      <p>Loading switchboard config…</p>
+    </div>
+  }
+
+  @case ('error') {
+    <div class="gate">
+      <div class="gate-card card">
+        <h1>Switchboard console can't start</h1>
+        <p class="error-text">{{ state.message }}</p>
+
+        <div class="dev-config-form">
+          <h3>Dev-mode config</h3>
+          <label>
+            Base URL
+            <input
+              type="text"
+              placeholder="http://127.0.0.1:4400"
+              [value]="devBaseUrl()"
+              (input)="devBaseUrl.set($any($event.target).value)"
+            />
+          </label>
+          <label>
+            Operator token
+            <input
+              type="text"
+              placeholder="sw_o_…"
+              [value]="devToken()"
+              (input)="devToken.set($any($event.target).value)"
+            />
+          </label>
+          <div class="row">
+            <button type="button" class="primary" (click)="submitDevConfig()">
+              Save &amp; retry
+            </button>
+            <button type="button" class="ghost" (click)="retry()">Retry</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  }
+
+  @case ('ready') {
+    <div class="app-frame">
+      @if (state.devMode) {
+        <div class="dev-banner">
+          Dev-mode config in use (localStorage) — no window.switchboard bridge detected.
+        </div>
+      }
+
+      <div class="shell">
+        <nav class="sidenav">
+          <div class="brand">Switchboard</div>
+          <a routerLink="/agents" routerLinkActive="active">Agents</a>
+          <a routerLink="/channels" routerLinkActive="active">Channels</a>
+          <a routerLink="/live" routerLinkActive="active">Live view</a>
+          <a routerLink="/patch-requests" routerLinkActive="active">Patch requests</a>
+          <a routerLink="/archives" routerLinkActive="active">Archives</a>
+        </nav>
+        <main class="content">
+          <router-outlet />
+        </main>
+      </div>
+    </div>
+  }
+}
+}

@@ -1,0 +1,73 @@
+.archives-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 1rem;
+  height: 100%;
+  min-height: 0;
+}
+
+.list-card {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.archive-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.archive-item {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  text-align: left;
+  background: var(--bg-inset);
+  border-color: var(--border);
+}
+
+.archive-item.active {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.archive-item.active .dim {
+  color: #e6eef7;
+}
+
+.purge-box {
+  margin-top: auto;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
+}
+
+.days-input {
+  width: 70px;
+}
+
+.transcript-card {
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.transcript-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.transcript {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: var(--text);
+  margin: 0;
+}
