@@ -50,17 +50,49 @@ extraResources:
 
 asar: true
 
+# Switchboard ships no update feed. This must be an explicit null: with it
+# unset, electron-builder auto-detects a publish provider from any GH_TOKEN /
+# GITHUB_TOKEN / GITLAB_TOKEN in the environment, fails to resolve a repo for
+# it, and then crashes building latest.yml with
+# "Cannot read properties of null (reading 'channel')".
+publish: null
+
 # Nothing native is a dependency of the *app* package: the only native module
 # (better-sqlite3) belongs to the server runtime, which is staged and rebuilt
 # for Electron's ABI by scripts/prepare-server-runtime.js before packaging.
 npmRebuild: false
 
 win:
-  # Simplest useful artifact for v1: an unpacked, runnable directory.
+  # Two artifacts from one run:
+  #   dir  -> release/win-unpacked, the runnable tree scripts/verify-packaged.mjs
+  #           checks (it must keep existing — do not drop this target).
+  #   nsis -> release/Switchboard-Setup-<version>.exe, the friendly installer.
   target:
     - target: dir
       arch:
         - x64
+    - target: nsis
+      arch:
+        - x64
+  # No code signing in v1: no certificate is configured, and nothing here may
+  # ask for one. electron-builder skips signing when no certificate is given.
+
+nsis:
+  # An assisted installer (wizard), not a silent one-click install.
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  # Per-user install: no UAC elevation prompt, no admin rights required.
+  perMachine: false
+  allowElevation: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Switchboard
+  menuCategory: false
+  deleteAppDataOnUninstall: false
+  # Differential/blockmap output is only useful with an update feed; skip it so
+  # release/ holds just the installer.
+  differentialPackage: false
+  artifactName: Switchboard-Setup-${version}.exe
 
 mac:
   # Host architecture only, deliberately: the staged server carries ONE
