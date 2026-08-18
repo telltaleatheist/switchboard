@@ -84,7 +84,7 @@ export class ApiService {
     return this.request('POST', '/v1/advertised-host', { host });
   }
 
-  /** `deleted` is 'hard' (row gone, name freed) or 'soft' (tombstoned — name retired because history references it). */
+  /** `deleted` is 'hard' (row gone) or 'soft' (mangled FK tombstone). Either way the name is freed immediately. */
   deleteAgent(name: string): Promise<{ name: string; deleted: 'hard' | 'soft' }> {
     return this.request('DELETE', `/v1/agents/${encodeURIComponent(name)}`);
   }

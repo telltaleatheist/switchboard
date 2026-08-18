@@ -225,6 +225,7 @@ const postMessage = (ctx: Ctx, req: Req): Result => {
   const stored = ctx.store.appendMessage(
     channel,
     sender.id,
+    sender.name,
     { to, subject, body, in_reply_to: inReplyTo, signal, state },
     idempotencyKey,
   );

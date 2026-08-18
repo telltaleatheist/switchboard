@@ -113,17 +113,28 @@ test('a taken name is silently deduped: alpha -> alpha-2 -> alpha-3', async () =
   assert.equal(await currentName(third.token), 'alpha-3');
   assert.notEqual(second.token, third.token);
 
-  // A retired (tombstoned) name is taken too — history still resolves it.
+  // A deleted name comes straight back to the pool — even when the agent
+  // sent messages (the tombstone keeps the FK under a mangled name; the
+  // attribution snapshot keeps the history readable).
   const ghostToken = await createAgent('ghost');
   await createChannel('ghost-town', ['ghost', 'alpha']);
   await send(ghostToken, 'ghost-town', { subject: 'boo', body: 'history keeps my name' });
   const closed = await call(h, 'POST', '/v1/channels/ghost-town/close', { token: h.operatorToken, body: {} });
   assert.equal(closed.status, 200);
   const deleted = await call<{ deleted: string }>(h, 'DELETE', '/v1/agents/ghost', { token: h.operatorToken });
-  assert.equal(deleted.json.deleted, 'soft', 'ghost must become a tombstone, not vanish');
+  assert.equal(deleted.json.deleted, 'soft', 'ghost has history, so it tombstones rather than vanishing');
 
   const reborn = await join('ghost');
-  assert.equal(reborn.agent, 'ghost-2', 'a retired name is skipped exactly like a live one');
+  assert.equal(reborn.agent, 'ghost', 'a deleted name must be immediately reusable');
+
+  // The old messages still say 'ghost' — the snapshot froze at deletion.
+  const history = await call<{ messages: { sender: string }[] }>(
+    h,
+    'GET',
+    '/v1/channels/ghost-town/messages?since=0',
+    { token: h.operatorToken },
+  );
+  assert.equal(history.json.messages[0]?.sender, 'ghost');
 });
 
 test('only the current join key enrolls: everything else is 401', async () => {
@@ -234,7 +245,7 @@ test('rename: the agent re-learns its name, history follows, the line records it
   }
 });
 
-test('rename conflicts are loud: 409 taken, 409 retired, 400 same name, 404 unknown', async () => {
+test('rename conflicts are loud: 409 taken, 400 same name, 404 unknown', async () => {
   const taken = await call(h, 'POST', '/v1/agents/renamer-b/rename', {
     token: h.operatorToken,
     body: { name: 'alpha' },
@@ -242,12 +253,15 @@ test('rename conflicts are loud: 409 taken, 409 retired, 400 same name, 404 unkn
   assert.equal(taken.status, 409, 'a rename is never deduped — the operator meant that exact name');
   assert.match(taken.json.error, /already exists/);
 
-  const retired = await call(h, 'POST', '/v1/agents/renamer-b/rename', {
+  // 'ghost' was deleted (and immediately re-taken by a fresh join above), so
+  // renaming onto it collides with the LIVE holder — deleted names are free,
+  // held names are not.
+  const heldAgain = await call(h, 'POST', '/v1/agents/renamer-b/rename', {
     token: h.operatorToken,
     body: { name: 'ghost' },
   });
-  assert.equal(retired.status, 409);
-  assert.match(retired.json.error, /retired/);
+  assert.equal(heldAgain.status, 409);
+  assert.match(heldAgain.json.error, /already exists/);
 
   const same = await call(h, 'POST', '/v1/agents/renamer-b/rename', {
     token: h.operatorToken,

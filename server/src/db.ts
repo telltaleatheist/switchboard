@@ -9,7 +9,7 @@ import * as path from 'node:path';
 
 export type Db = Database.Database;
 
-export const SCHEMA_VERSION = '3';
+export const SCHEMA_VERSION = '4';
 export const DB_FILENAME = 'switchboard.db';
 export const ARCHIVE_DIRNAME = 'archives';
 
@@ -56,6 +56,9 @@ CREATE TABLE IF NOT EXISTS messages (
   seq         INTEGER NOT NULL,
   ts          TEXT NOT NULL,
   sender_id   INTEGER NOT NULL REFERENCES agents(id),
+  -- Attribution snapshot: kept current by renames while the sender lives,
+  -- frozen when it is deleted — which is what lets deletion free the name.
+  sender_name TEXT,
   to_json     TEXT,
   subject     TEXT NOT NULL,
   body        TEXT NOT NULL,
@@ -146,6 +149,16 @@ const MIGRATIONS: Record<string, (db: Db) => string> = {
   '2': (db) => {
     db.exec('ALTER TABLE agents ADD COLUMN last_seen_at TEXT');
     return '3';
+  },
+  '3': (db) => {
+    // Attribution moves to a per-message snapshot so deleting an agent can
+    // free its name. Backfill from the rows that still resolve, then mangle
+    // every existing tombstone's name (they only existed to keep the FK and
+    // the name squatted — the squatting is exactly what this removes).
+    db.exec('ALTER TABLE messages ADD COLUMN sender_name TEXT');
+    db.exec('UPDATE messages SET sender_name = (SELECT name FROM agents WHERE agents.id = messages.sender_id)');
+    db.exec("UPDATE agents SET name = '#gone-' || id WHERE deleted_at IS NOT NULL");
+    return '4';
   },
 };
 

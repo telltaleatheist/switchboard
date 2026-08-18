@@ -78,6 +78,7 @@ channels(id INTEGER PK, name TEXT, status TEXT,          -- open|closed
          note TEXT)
 channel_members(channel_id, agent_id, joined_at, UNIQUE(channel_id, agent_id))
 messages(id INTEGER PK, channel_id, seq, ts, sender_id,
+         sender_name TEXT,      -- attribution snapshot (see agents DELETE)
          to_json TEXT,          -- JSON array of names, NULL = everyone
          subject TEXT, body TEXT, in_reply_to INTEGER,
          signal TEXT, state TEXT, UNIQUE(channel_id, seq))
@@ -102,7 +103,7 @@ Agent-token endpoints:
 | Method/path | Body → Response |
 |---|---|
 | `GET /v1/version` | (no auth) → `{api:1, server:"0.1.0"}` |
-| `POST /v1/join` | (auth: **join key** as `Bearer sw_j_…`) `{name}` (proposed slug) → 201 `{agent:"<canonical>", token:"sw_a_…", created_at}`. **The server dedupes silently**: if the proposed name is taken (live or retired), it appends `-2`, `-3`, … and returns the first free name as `agent` — no failure mode, no retry loop. 401 on a wrong/rotated join key. |
+| `POST /v1/join` | (auth: **join key** as `Bearer sw_j_…`) `{name}` (proposed slug) → 201 `{agent:"<canonical>", token:"sw_a_…", created_at}`. **The server dedupes silently**: if the proposed name is held by a LIVE agent, it appends `-2`, `-3`, … and returns the first free name as `agent` — no failure mode, no retry loop. Deleted names are free (see attribution snapshots). 401 on a wrong/rotated join key. |
 | `GET /v1/agents/me` | → `{agent, channels:[{name, last_seq, members:[names]}], line_seq}` (`agent` is always the CURRENT canonical name — a renamed agent re-learns its name here) |
 | `GET /v1/agents/me/line?since=N[&wait=S]` | → `{frames:[LineFrame], line_seq}` — HTTP long-poll twin of the control-line WS (same frames, same cursor; invite `token` injected with the caller's own). Exists because some client harnesses cannot open a WS to this host at all: the Monitor tool refuses private-range addresses (RFC1918/CGNAT/link-local) whether literal IP or hostname — only loopback passes. `wait` ≤ 60 s. Upgrade requests never reach the router, so the path serves both. |
 | `POST /v1/channels/{name}/messages` | `{subject, body, to?, in_reply_to?, signal?, state?}` → 201 `{seq, ts}`. Operator token works too: the message attributes to the reserved sender **`operator`** — a hidden agents row (empty token_hash, excluded from the roster, its name refused to join/register/rename; a join proposing it dedupes to `operator-2`). Membership is waived for operator sends |
@@ -120,8 +121,9 @@ Operator-token endpoints (agent tokens get 403):
 | `POST /v1/join-key/rotate` | `{}` → `{join_key:"sw_j_…"}` (new key; the old one stops working immediately; existing agents unaffected) |
 | `GET /v1/advertised-host` | → `{host:"…"\|null}` — operator-configured DNS name the join block leads with (stored in `meta`; null = primary IP) |
 | `POST /v1/advertised-host` | `{host:"switchboard.my-pc.example.com"}` or `{host:null}` (clear) → `{host}`. Bare host only — scheme/port/path → 400 (the console composes the URL) |
-| `POST /v1/agents/{name}/rename` | `{name:"<new-slug>"}` → 200 `{old, name}`. 409 if the new name is taken or retired (rename is NOT deduped — the operator chose that exact name on purpose). Message attribution follows automatically (senders resolve by id at read time). Persists + pushes a `renamed` frame on the agent's control line. Historical `to_json` arrays keep the old name — display-only, never used for delivery after the fact. |
+| `POST /v1/agents/{name}/rename` | `{name:"<new-slug>"}` → 200 `{old, name}`. 409 if the new name is held by a live agent (rename is NOT deduped — the operator chose that exact name on purpose). The rename also rewrites the agent's message-attribution snapshots, so history follows a LIVING agent's name. Persists + pushes a `renamed` frame on the agent's control line. Historical `to_json` arrays keep the old name — display-only, never used for delivery after the fact. |
 | `POST /v1/agents/{name}/reissue` | → `{name, token}` |
+| `DELETE /v1/agents/{name}` | → `{name, deleted:"hard"\|"soft", removed_from:[channel names]}`. **The name is freed immediately either way.** No messages → row deleted (`hard`). With messages → the row survives only as an FK anchor, renamed to `#gone-<id>` (`#` is impossible in a slug, so it can never collide) — invisible everywhere (`soft`). Attribution is untouched because every message carries a `sender_name` snapshot, frozen at deletion, rewritten by renames while the sender lives. Open-channel memberships are dropped in the same transaction |
 | `GET /v1/agents` | → `{agents:[{name, created_at, connected:bool, last_seen_at, channels:[names]}]}` (`last_seen_at` = ISO-8601 of the last WS connect or line long-poll, null if never — persisted, throttled to one write per 30 s per agent) |
 | `POST /v1/channels` | `{name, members:[names], note?}` → 201 `{name, invited:[names]}` (pushes invites) |
 | `POST /v1/channels/{name}/members` | `{members:[names]}` → 200 `{name, added:[names], already:[names]}` — patch agents into an OPEN channel (409 closed). Newcomers get an ordinary invite frame with the channel's current `last_seq` (late-joiner replay rule); existing members are NOT notified (the members list already carries it — no wasted wake-ups); already-members land in `already`, not an error |

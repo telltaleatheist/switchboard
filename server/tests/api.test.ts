@@ -1102,14 +1102,17 @@ test('agent deletion: hard when unused, soft when history references it', async 
   assert.ok(!listed2.json.agents.some((a) => a.name === 'phoenix'), 'soft-deleted agent must vanish from the list');
   const softToken = await call(h, 'GET', '/v1/agents/me', { token: phoenix.json.token });
   assert.equal(softToken.status, 401, 'a soft-deleted agent token must stop working');
-  const retired = await call(h, 'POST', '/v1/agents', { token: h.operatorToken, body: { name: 'phoenix' } });
-  assert.equal(retired.status, 409, 'a name referenced by history must be retired, not reusable');
+  const reusable = await call(h, 'POST', '/v1/agents', { token: h.operatorToken, body: { name: 'phoenix' } });
+  assert.equal(reusable.status, 201, 'a deleted name must be immediately reusable — no retirement');
 
-  // The closed channel's history must still resolve the deleted sender's name.
+  // The closed channel's history must still resolve the ORIGINAL sender's
+  // name (the attribution snapshot froze at deletion) even though a new,
+  // unrelated agent now holds the same name.
   const history = await call<{ messages: any[] }>(h, 'GET', '/v1/channels/deletion-test/messages?since=0', {
     token: h.operatorToken,
   });
   assert.equal(history.status, 200);
   const last = history.json.messages.find((m) => m.subject === 'last words');
   assert.equal(last?.sender, 'phoenix', 'history must keep resolving a soft-deleted sender');
+  await call(h, 'DELETE', '/v1/agents/phoenix', { token: h.operatorToken });
 });

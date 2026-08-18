@@ -46,6 +46,7 @@ export interface MessageRow {
   seq: number;
   ts: string;
   sender_id: number;
+  sender_name: string | null;
   to_json: string | null;
   subject: string;
   body: string;
@@ -198,6 +199,9 @@ export class Store {
     const rename = this.db.transaction((): void => {
       this.assertNameFree(name);
       this.db.prepare('UPDATE agents SET name = ? WHERE id = ?').run(name, agentId);
+      // Attribution snapshots follow a LIVING agent's rename; they only
+      // freeze at deletion.
+      this.db.prepare('UPDATE messages SET sender_name = ? WHERE sender_id = ?').run(name, agentId);
     });
     rename();
   }
@@ -222,20 +226,17 @@ export class Store {
     return { id: Number(info.lastInsertRowid), name: OPERATOR_NAME, token_hash: '', created_at, line_seq: 0, last_seen_at: null };
   }
 
-  /** A name is taken by a live agent OR retired by a tombstone — both 409. */
+  /**
+   * A name is taken only by a LIVE agent. Tombstones no longer squat names:
+   * their rows carry mangled `#gone-<id>` names (deleteAgent), and message
+   * attribution lives in per-message snapshots, so a deleted agent's name
+   * returns to the pool immediately.
+   */
   private assertNameFree(name: string): void {
     if (name === OPERATOR_NAME) {
       throw conflict(`the name '${OPERATOR_NAME}' is reserved for the human at the console`);
     }
     if (this.findAgentByName(name)) throw conflict(`agent '${name}' already exists`);
-    const retired = this.db
-      .prepare('SELECT 1 FROM agents WHERE name = ? AND deleted_at IS NOT NULL')
-      .get(name);
-    if (retired) {
-      throw conflict(
-        `the name '${name}' is retired: a deleted agent's message history still references it — pick another name`,
-      );
-    }
   }
 
   /** The proposed name, or the first free `-N` variant of it. */
@@ -331,8 +332,12 @@ export class Store {
         this.db.prepare('DELETE FROM agents WHERE id = ?').run(agent.id);
         return { mode: 'hard', removedFrom };
       }
+      // Messages reference the row (FK), so it must survive — but as a
+      // MANGLED tombstone: `#` is impossible in a slug, so `#gone-<id>` can
+      // never collide, and the agent's real name returns to the pool right
+      // now. Attribution is untouched: it reads the per-message snapshot.
       this.db
-        .prepare("UPDATE agents SET deleted_at = ?, token_hash = '' WHERE id = ?")
+        .prepare("UPDATE agents SET deleted_at = ?, token_hash = '', name = '#gone-' || id WHERE id = ?")
         .run(nowIso(), agent.id);
       return { mode: 'soft', removedFrom };
     });
@@ -490,6 +495,7 @@ export class Store {
   appendMessage(
     channel: ChannelRow,
     senderId: number,
+    senderName: string,
     msg: NewMessage,
     idempotencyKey: string | null,
   ): { seq: number; ts: string } {
@@ -502,14 +508,15 @@ export class Store {
       const ts = nowIso();
       this.db
         .prepare(
-          `INSERT INTO messages(channel_id, seq, ts, sender_id, to_json, subject, body, in_reply_to, signal, state)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO messages(channel_id, seq, ts, sender_id, sender_name, to_json, subject, body, in_reply_to, signal, state)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           channel.id,
           seq,
           ts,
           senderId,
+          senderName,
           msg.to === null ? null : JSON.stringify(msg.to),
           msg.subject,
           msg.body,
@@ -537,12 +544,15 @@ export class Store {
   }
 
   messagesSince(channelId: number, since: number): WireMessage[] {
+    // The snapshot is authoritative; the join is only the safety net for a
+    // pre-v4 row whose backfill somehow missed (it cannot, but fail soft).
     const rows = this.db
       .prepare(
-        `SELECT m.*, a.name AS sender_name FROM messages m JOIN agents a ON a.id = m.sender_id
+        `SELECT m.*, COALESCE(m.sender_name, a.name) AS resolved_sender
+         FROM messages m JOIN agents a ON a.id = m.sender_id
          WHERE m.channel_id = ? AND m.seq > ? ORDER BY m.seq`,
       )
-      .all(channelId, since) as (MessageRow & { sender_name: string })[];
+      .all(channelId, since) as (MessageRow & { resolved_sender: string })[];
     return rows.map(toWireMessage);
   }
 
@@ -638,11 +648,11 @@ export class Store {
   }
 }
 
-export function toWireMessage(row: MessageRow & { sender_name: string }): WireMessage {
+export function toWireMessage(row: MessageRow & { resolved_sender: string }): WireMessage {
   return {
     seq: row.seq,
     ts: row.ts,
-    sender: row.sender_name,
+    sender: row.resolved_sender,
     to: row.to_json === null ? null : (JSON.parse(row.to_json) as string[]),
     subject: row.subject,
     body: row.body,

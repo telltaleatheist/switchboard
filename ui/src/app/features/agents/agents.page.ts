@@ -171,8 +171,8 @@ export class AgentsPage implements OnInit, OnDestroy {
     const ok = await this.confirmService.ask({
       title: `Delete agent "${name}"?`,
       message:
-        `Its token stops working immediately, and it is removed from any open channels (they stay open for everyone else).\n\n` +
-        `If it never sent a message the name is freed; otherwise the name stays retired so history keeps its attribution.`,
+        `Its token stops working immediately, it is removed from any open channels (they stay open for everyone else), ` +
+        `and the name is freed for reuse. Message history keeps its attribution.`,
       confirmLabel: 'Delete agent',
       danger: true,
     });
