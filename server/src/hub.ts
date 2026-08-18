@@ -104,6 +104,10 @@ export class Hub {
     for (const conn of this.channelConns) {
       if (conn.channelId !== channelId) continue;
       if (conn.agentId !== null && conn.agentId === senderId) continue;
+      // wake:false = record-only: no agent is ever pushed it. Operator
+      // sockets (agentName null) still get it — the console watches the
+      // record, and a human reading costs no model turns.
+      if (!message.wake && conn.agentName !== null) continue;
       if (!Hub.addressedTo(message.to, conn.agentName)) continue;
       send(conn.socket, frame);
     }

@@ -97,6 +97,10 @@ function route(ctx: Ctx, wss: WebSocketServer, req: http.IncomingMessage, socket
       // slip past and nothing is delivered twice.
       for (const message of ctx.store.messagesSince(channel.id, since)) {
         if (!Hub.addressedTo(message.to, agentName)) continue;
+        // Agents are never pushed wake:false records, replay included — a
+        // reconnect must not turn the log into wake-ups. Explicit plain
+        // pulls (and operator sockets) are where the record lives.
+        if (!message.wake && agentName !== null) continue;
         ws.send(JSON.stringify({ type: 'message', channel: channel.name, message }));
       }
       ctx.hub.addChannelConnection(conn);

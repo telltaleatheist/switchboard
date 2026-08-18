@@ -4,6 +4,7 @@
  * allocated inside transactions so they stay gapless.
  */
 
+import { randomBytes } from 'node:crypto';
 import type { Db } from './db';
 import { conflict, notFound } from './errors';
 import { mintJoinKey } from './tokens';
@@ -17,6 +18,9 @@ const ADVERTISED_HOST_META = 'advertised_host';
 
 /** Reserved sender name for console-sent messages (see ensureOperatorAgent). */
 const OPERATOR_NAME = 'operator';
+
+/** `meta` row holding this data dir's permanent instance id (see ensureInstanceId). */
+const INSTANCE_ID_META = 'instance_id';
 
 /** How far the join dedupe probes before giving up: name-2 ... name-1000. */
 const MAX_DEDUPE_SUFFIX = 1000;
@@ -51,6 +55,8 @@ export interface MessageRow {
   subject: string;
   body: string;
   in_reply_to: number | null;
+  reply_to_json: string | null;
+  wake: number;
   signal: string | null;
   state: string | null;
 }
@@ -63,7 +69,10 @@ export interface WireMessage {
   to: string[] | null;
   subject: string;
   body: string;
-  in_reply_to: number | null;
+  /** Scalar when one seq is cited (back-compat), array when several, null when none. */
+  in_reply_to: number | number[] | null;
+  /** False = record-only: in history and transcripts, never pushed to an agent. */
+  wake: boolean;
   signal: string | null;
   state: string | null;
 }
@@ -97,7 +106,9 @@ export interface NewMessage {
   to: string[] | null;
   subject: string;
   body: string;
-  in_reply_to: number | null;
+  /** Every cited seq (deduped, validated); empty array = no citations. */
+  in_reply_to: number[];
+  wake: boolean;
   signal: string | null;
   state: string | null;
 }
@@ -143,6 +154,31 @@ export class Store {
       .prepare('INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
       .run(JOIN_KEY_META, key);
     return key;
+  }
+
+  /**
+   * The switchboard's epoch: a random id minted the first time this data dir
+   * boots and never changed after. Agents record it at join; a mismatch on a
+   * later check means "different world — your token, cursors and channel
+   * history all predate this instance", which turns a silent rebuild into a
+   * deterministic two-line detection (first-users RFC, unanimous item).
+   */
+  ensureInstanceId(): string {
+    const row = this.db.prepare('SELECT value FROM meta WHERE key = ?').get(INSTANCE_ID_META) as
+      | { value: string }
+      | undefined;
+    if (row) return row.value;
+    const id = `sw_i_${randomBytes(8).toString('hex')}`;
+    this.db.prepare('INSERT INTO meta(key, value) VALUES (?, ?)').run(INSTANCE_ID_META, id);
+    return id;
+  }
+
+  getInstanceId(): string {
+    const row = this.db.prepare('SELECT value FROM meta WHERE key = ?').get(INSTANCE_ID_META) as
+      | { value: string }
+      | undefined;
+    if (!row) throw new Error(`no '${INSTANCE_ID_META}' row in meta: the switchboard was never initialised`);
+    return row.value;
   }
 
   /**
@@ -458,6 +494,15 @@ export class Store {
     return rows.map((r) => r.name);
   }
 
+  /** Member rows with ids — presence rendering needs id + name + last_seen. */
+  memberRows(channelId: number): { id: number; name: string; last_seen_at: string | null }[] {
+    return this.db
+      .prepare(
+        'SELECT a.id, a.name, a.last_seen_at FROM channel_members m JOIN agents a ON a.id = m.agent_id WHERE m.channel_id = ? ORDER BY a.name',
+      )
+      .all(channelId) as { id: number; name: string; last_seen_at: string | null }[];
+  }
+
   memberIds(channelId: number): number[] {
     const rows = this.db
       .prepare('SELECT agent_id FROM channel_members WHERE channel_id = ? ORDER BY agent_id')
@@ -508,8 +553,8 @@ export class Store {
       const ts = nowIso();
       this.db
         .prepare(
-          `INSERT INTO messages(channel_id, seq, ts, sender_id, sender_name, to_json, subject, body, in_reply_to, signal, state)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO messages(channel_id, seq, ts, sender_id, sender_name, to_json, subject, body, in_reply_to, reply_to_json, wake, signal, state)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           channel.id,
@@ -520,7 +565,9 @@ export class Store {
           msg.to === null ? null : JSON.stringify(msg.to),
           msg.subject,
           msg.body,
-          msg.in_reply_to,
+          msg.in_reply_to.length > 0 ? msg.in_reply_to[0] : null,
+          msg.in_reply_to.length > 0 ? JSON.stringify(msg.in_reply_to) : null,
+          msg.wake ? 1 : 0,
           msg.signal,
           msg.state,
         );
@@ -649,6 +696,14 @@ export class Store {
 }
 
 export function toWireMessage(row: MessageRow & { resolved_sender: string }): WireMessage {
+  // Citations: scalar out when one (back-compat with every existing reader),
+  // array when several. reply_to_json is authoritative; the legacy scalar
+  // column covers pre-v5 rows.
+  let inReplyTo: number | number[] | null = row.in_reply_to;
+  if (row.reply_to_json !== null) {
+    const cited = JSON.parse(row.reply_to_json) as number[];
+    inReplyTo = cited.length === 1 ? (cited[0] as number) : cited;
+  }
   return {
     seq: row.seq,
     ts: row.ts,
@@ -656,7 +711,8 @@ export function toWireMessage(row: MessageRow & { resolved_sender: string }): Wi
     to: row.to_json === null ? null : (JSON.parse(row.to_json) as string[]),
     subject: row.subject,
     body: row.body,
-    in_reply_to: row.in_reply_to,
+    in_reply_to: inReplyTo,
+    wake: row.wake !== 0,
     signal: row.signal,
     state: row.state,
   };

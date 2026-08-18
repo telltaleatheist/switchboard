@@ -40,6 +40,9 @@ export async function startSwitchboard(config: Config): Promise<Switchboard> {
   // The join key survives restarts (unlike the operator token): mint it on
   // first boot, reuse it forever after, until the operator rotates it.
   ctx.store.ensureJoinKey();
+  // The instance id is this data dir's permanent epoch — agents detect a
+  // rebuild by comparing it to the value they recorded at join.
+  ctx.store.ensureInstanceId();
 
   const httpServer = createHttpServer(ctx, ROUTES);
   const ws = attachWebSockets(ctx, httpServer);

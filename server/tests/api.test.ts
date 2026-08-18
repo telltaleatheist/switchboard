@@ -61,9 +61,11 @@ after(async () => {
 // --------------------------------------------------------------- version
 
 test('GET /v1/version needs no auth and reports the frozen api version', async () => {
-  const res = await call(h, 'GET', '/v1/version');
+  const res = await call<{ api: number; server: string; instance: string }>(h, 'GET', '/v1/version');
   assert.equal(res.status, 200);
-  assert.deepEqual(res.json, { api: 1, server: '0.1.0' });
+  assert.equal(res.json.api, 1);
+  assert.equal(res.json.server, '0.1.0');
+  assert.match(res.json.instance, /^sw_i_[0-9a-f]{16}$/);
 });
 
 test('unknown endpoints 404 and wrong methods 405', async () => {
@@ -250,6 +252,7 @@ test('send and read with cursors; server assigns seq, ts and sender', async () =
     subject: 'one',
     body: 'first body',
     in_reply_to: null,
+    wake: true,
     signal: null,
     state: null,
   });
@@ -754,6 +757,110 @@ test('a long-polling agent shows as connected in the operator listing', async ()
   const after = await listAgents();
   assert.equal(after.connected, true);
   assert.ok(typeof after.last_seen_at === 'string' && after.last_seen_at.length > 0);
+});
+
+test('RFC batch: instance epoch, multi-citation replies, wake:false records, presence', async () => {
+  // Epoch: present, stable across surfaces, and carried in the stale-token 401.
+  const version = await call<{ instance: string }>(h, 'GET', '/v1/version');
+  assert.match(version.json.instance, /^sw_i_[0-9a-f]{16}$/);
+  const me = await call<{ instance: string }>(h, 'GET', '/v1/agents/me', { token: alphaToken });
+  assert.equal(me.json.instance, version.json.instance);
+  const stale = await call<{ error: string }>(h, 'GET', '/v1/agents/me', {
+    token: 'sw_a_00000000000000000000000000000000',
+  });
+  assert.equal(stale.status, 401);
+  assert.ok(stale.json.error.includes(version.json.instance), '401 must carry the instance id to branch on');
+
+  await createChannel('rfc-batch', ['alpha', 'beta']);
+  await send(alphaToken, 'rfc-batch', { subject: 'one', body: 'b1' });
+  await send(alphaToken, 'rfc-batch', { subject: 'two', body: 'b2' });
+
+  // Citations: array in → array out; scalar in → scalar out; bad seq → 400.
+  const folded = await send(betaToken, 'rfc-batch', {
+    subject: 'folded',
+    body: 'answers both',
+    in_reply_to: [1, 2],
+    state: 'settled',
+  });
+  const single = await send(alphaToken, 'rfc-batch', { subject: 'single', body: 'x', in_reply_to: 1 });
+  const hist1 = await call<{ messages: any[] }>(h, 'GET', '/v1/channels/rfc-batch/messages?since=0', {
+    token: h.operatorToken,
+  });
+  assert.deepEqual(hist1.json.messages.find((m) => m.seq === folded.seq)?.in_reply_to, [1, 2]);
+  assert.equal(hist1.json.messages.find((m) => m.seq === single.seq)?.in_reply_to, 1);
+  const badCite = await call(h, 'POST', '/v1/channels/rfc-batch/messages', {
+    token: alphaToken,
+    body: { subject: 's', body: 'b', in_reply_to: [1, 99] },
+  });
+  assert.equal(badCite.status, 400);
+
+  // wake:false: recorded, never pushed to agents (live or replay), hidden
+  // from for=me, visible to plain pulls and operator sockets.
+  const betaWs = await FrameLog.open(h, `/v1/channels/rfc-batch/ws?token=${betaToken}&since=${single.seq}`);
+  const operatorWs = await FrameLog.open(h, `/v1/channels/rfc-batch/ws?token=${h.operatorToken}&since=${single.seq}`);
+  try {
+    const record = await send(alphaToken, 'rfc-batch', {
+      subject: 'receipt: consumed go-signal',
+      body: 'record-only',
+      wake: false,
+      in_reply_to: 1,
+    });
+    const normal = await send(alphaToken, 'rfc-batch', { subject: 'normal', body: 'wakes beta' });
+
+    const betaFrame = await betaWs.next();
+    assert.equal(betaFrame.message.seq, normal.seq, 'beta must be woken only by the normal message');
+    await betaWs.expectSilence(200);
+    assert.equal(betaWs.frames.length, 1);
+
+    assert.equal((await operatorWs.next()).message.seq, record.seq, 'operator sees the record live');
+    assert.equal((await operatorWs.next()).message.seq, normal.seq);
+
+    const forMe = await call<{ messages: any[] }>(
+      h,
+      'GET',
+      `/v1/channels/rfc-batch/messages?since=${single.seq}&for=me`,
+      { token: betaToken },
+    );
+    assert.deepEqual(
+      forMe.json.messages.map((m) => m.seq),
+      [normal.seq],
+      'for=me must mirror push: no records',
+    );
+    const plain = await call<{ messages: any[] }>(h, 'GET', `/v1/channels/rfc-batch/messages?since=${single.seq}`, {
+      token: betaToken,
+    });
+    assert.deepEqual(
+      plain.json.messages.map((m) => m.seq),
+      [record.seq, normal.seq],
+      'plain pull is the full record',
+    );
+    assert.equal(plain.json.messages[0].wake, false);
+
+    // Replay: a fresh agent socket skips the record too.
+    const betaReplay = await FrameLog.open(h, `/v1/channels/rfc-batch/ws?token=${betaToken}&since=${single.seq}`);
+    try {
+      const replayed = await betaReplay.next();
+      assert.equal(replayed.message.seq, normal.seq, 'replay must not turn records into wake-ups');
+    } finally {
+      betaReplay.close();
+    }
+  } finally {
+    betaWs.close();
+    operatorWs.close();
+  }
+
+  // Presence: liveness per member on channel info, for check-before-gating.
+  const info = await call<{ presence: { name: string; connected: boolean; last_seen_at: string | null }[] }>(
+    h,
+    'GET',
+    '/v1/channels/rfc-batch',
+    { token: h.operatorToken },
+  );
+  assert.deepEqual(info.json.presence.map((p) => p.name).sort(), ['alpha', 'beta']);
+  for (const p of info.json.presence) {
+    assert.equal(typeof p.connected, 'boolean');
+    assert.ok(p.last_seen_at === null || typeof p.last_seen_at === 'string');
+  }
 });
 
 // ------------------------------------------------------- advertised host

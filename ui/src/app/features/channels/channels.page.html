@@ -88,14 +88,19 @@
               <td class="mono">{{ ch.name }}</td>
               <td>
                 <span class="member-list">
-                  @for (m of ch.members; track m) {
-                    <span class="badge member-badge">
-                      {{ m }}
+                  @for (p of ch.presence; track p.name) {
+                    <span
+                      class="badge dot member-badge"
+                      [class.online]="p.connected"
+                      [class.offline]="!p.connected"
+                      title="{{ p.connected ? 'connected' : p.last_seen_at ? 'offline — last seen ' + p.last_seen_at : 'offline — never connected' }}"
+                    >
+                      {{ p.name }}
                       <button
                         type="button"
                         class="kick"
-                        title="Remove {{ m }} from {{ ch.name }}"
-                        (click)="removeMember(ch.name, m)"
+                        title="Remove {{ p.name }} from {{ ch.name }}"
+                        (click)="removeMember(ch.name, p.name)"
                       >×</button>
                     </span>
                   }

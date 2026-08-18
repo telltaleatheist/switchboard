@@ -9,7 +9,7 @@ import * as path from 'node:path';
 
 export type Db = Database.Database;
 
-export const SCHEMA_VERSION = '4';
+export const SCHEMA_VERSION = '5';
 export const DB_FILENAME = 'switchboard.db';
 export const ARCHIVE_DIRNAME = 'archives';
 
@@ -62,7 +62,9 @@ CREATE TABLE IF NOT EXISTS messages (
   to_json     TEXT,
   subject     TEXT NOT NULL,
   body        TEXT NOT NULL,
-  in_reply_to INTEGER,
+  in_reply_to INTEGER,          -- legacy scalar: first cited seq
+  reply_to_json TEXT,           -- JSON array of every cited seq, NULL = none
+  wake        INTEGER NOT NULL DEFAULT 1,  -- 0 = record-only, push nobody
   signal      TEXT,
   state       TEXT,
   UNIQUE(channel_id, seq)
@@ -159,6 +161,13 @@ const MIGRATIONS: Record<string, (db: Db) => string> = {
     db.exec('UPDATE messages SET sender_name = (SELECT name FROM agents WHERE agents.id = messages.sender_id)');
     db.exec("UPDATE agents SET name = '#gone-' || id WHERE deleted_at IS NOT NULL");
     return '4';
+  },
+  '4': (db) => {
+    // Multi-citation replies + record-only sends (first-users RFC).
+    db.exec('ALTER TABLE messages ADD COLUMN reply_to_json TEXT');
+    db.exec('UPDATE messages SET reply_to_json = json_array(in_reply_to) WHERE in_reply_to IS NOT NULL');
+    db.exec('ALTER TABLE messages ADD COLUMN wake INTEGER NOT NULL DEFAULT 1');
+    return '5';
   },
 };
 

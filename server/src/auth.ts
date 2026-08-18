@@ -22,7 +22,16 @@ export function principalFromToken(ctx: Ctx, token: string): Principal {
     return { kind: 'operator', token };
   }
   const agent = ctx.store.findAgentByTokenHash(hashToken(token));
-  if (!agent) throw unauthorized('unknown token');
+  if (!agent) {
+    // The instance id makes this 401 branchable for agents: if the id
+    // differs from the one recorded at join, the switchboard was rebuilt
+    // (token, cursors and history all predate this world — re-enroll and
+    // announce the gap); if it matches, this exact token was revoked or
+    // reissued — ask the operator.
+    throw unauthorized(
+      `unknown token (instance ${ctx.store.getInstanceId()}): if this instance id differs from the one you recorded at join, the switchboard was rebuilt — re-enroll and announce your gap; if it matches, your token was revoked or reissued — ask the operator`,
+    );
+  }
   return { kind: 'agent', agent, token };
 }
 

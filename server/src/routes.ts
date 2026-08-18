@@ -70,6 +70,14 @@ function channelInfo(ctx: Ctx, channel: ChannelRow): Record<string, unknown> {
     name: channel.name,
     status: channel.status,
     members: ctx.store.memberNames(channel.id),
+    // Liveness per member — "check before you gate work on someone" (RFC).
+    // connected = live receive path right now; last_seen_at = last sign of
+    // life ever (null = never armed anything).
+    presence: ctx.store.memberRows(channel.id).map((m) => ({
+      name: m.name,
+      connected: ctx.hub.isAgentConnected(m.id),
+      last_seen_at: m.last_seen_at,
+    })),
     last_seq: channel.last_seq,
     created_at: channel.created_at,
     closed_at: channel.closed_at,
@@ -92,9 +100,12 @@ function resolveMembers(ctx: Ctx, names: string[]): AgentRow[] {
 
 // ------------------------------------------------------------- handlers
 
-const getVersion = (): Result => ({
+const getVersion = (ctx: Ctx): Result => ({
   status: 200,
-  body: { api: API_VERSION, server: SERVER_VERSION },
+  // `instance` is the epoch: constant for one data dir's lifetime, different
+  // after any rebuild/data-dir switch. Agents compare it to the value they
+  // recorded at join to detect "new world" deterministically.
+  body: { api: API_VERSION, server: SERVER_VERSION, instance: ctx.store.getInstanceId() },
 });
 
 /**
@@ -111,7 +122,15 @@ const postJoin = (ctx: Ctx, req: Req): Result => {
   const proposed = assertSlug(obj['name'], 'name');
   const token = mintAgentToken();
   const agent = ctx.store.createAgentDeduped(proposed, hashToken(token));
-  return { status: 201, body: { agent: agent.name, token, created_at: agent.created_at } };
+  return {
+    status: 201,
+    body: {
+      agent: agent.name,
+      token,
+      created_at: agent.created_at,
+      instance: ctx.store.getInstanceId(),
+    },
+  };
 };
 
 const getAgentsMe = (ctx: Ctx, req: Req): Result => {
@@ -126,7 +145,13 @@ const getAgentsMe = (ctx: Ctx, req: Req): Result => {
   }));
   return {
     status: 200,
-    body: { agent: fresh.name, created_at: fresh.created_at, channels, line_seq: fresh.line_seq },
+    body: {
+      agent: fresh.name,
+      created_at: fresh.created_at,
+      channels,
+      line_seq: fresh.line_seq,
+      instance: ctx.store.getInstanceId(),
+    },
   };
 };
 
@@ -196,7 +221,7 @@ const postMessage = (ctx: Ctx, req: Req): Result => {
     }
   }
 
-  const obj = parseBody(req, ['subject', 'body', 'to', 'in_reply_to', 'signal', 'state']);
+  const obj = parseBody(req, ['subject', 'body', 'to', 'in_reply_to', 'wake', 'signal', 'state']);
   const subject = requireString(obj, 'subject', MAX_SUBJECT_CHARS);
   const body = requireString(obj, 'body', MAX_BODY_CHARS);
   const to = optionalStringArray(obj, 'to');
@@ -209,16 +234,37 @@ const postMessage = (ctx: Ctx, req: Req): Result => {
       }
     }
   }
-  const inReplyTo = optionalPositiveInt(obj, 'in_reply_to');
-  if (inReplyTo !== null && !ctx.store.seqExists(channel.id, inReplyTo)) {
-    throw badRequest(`field 'in_reply_to' references seq ${inReplyTo}, which does not exist in channel '${channelName}'`);
+
+  // Citations: a scalar or an array — the fold rule ("answer everything since
+  // your last send in one message") makes multi-citation the normal case.
+  const cited: number[] = [];
+  if ('in_reply_to' in obj && obj['in_reply_to'] !== null && obj['in_reply_to'] !== undefined) {
+    const raw = obj['in_reply_to'];
+    const list = Array.isArray(raw) ? raw : [raw];
+    if (list.length === 0) throw badRequest("field 'in_reply_to' must not be an empty array; omit it instead");
+    for (const item of list) {
+      if (typeof item !== 'number' || !Number.isInteger(item) || item < 1) {
+        throw badRequest("field 'in_reply_to' must be a positive integer seq or an array of them");
+      }
+      if (!ctx.store.seqExists(channel.id, item)) {
+        throw badRequest(`field 'in_reply_to' references seq ${item}, which does not exist in channel '${channelName}'`);
+      }
+      if (!cited.includes(item)) cited.push(item);
+    }
   }
+
+  const wakeRaw = obj['wake'];
+  if ('wake' in obj && typeof wakeRaw !== 'boolean') {
+    throw badRequest("field 'wake' must be a boolean (false = record-only, pushed to nobody)");
+  }
+  const wake = wakeRaw === false ? false : true;
+
   const signal = optionalString(obj, 'signal', MAX_SIGNAL_CHARS);
   const state = optionalString(obj, 'state', 32);
   if (state !== null && state !== 'settled' && state !== 'withdrawn') {
     throw badRequest("field 'state' must be 'settled' or 'withdrawn'");
   }
-  if (state !== null && inReplyTo === null) {
+  if (state !== null && cited.length === 0) {
     throw badRequest("field 'state' requires 'in_reply_to' (state marks a change on the referenced thread)");
   }
 
@@ -226,7 +272,7 @@ const postMessage = (ctx: Ctx, req: Req): Result => {
     channel,
     sender.id,
     sender.name,
-    { to, subject, body, in_reply_to: inReplyTo, signal, state },
+    { to, subject, body, in_reply_to: cited, wake, signal, state },
     idempotencyKey,
   );
 
@@ -237,7 +283,8 @@ const postMessage = (ctx: Ctx, req: Req): Result => {
     to,
     subject,
     body,
-    in_reply_to: inReplyTo,
+    in_reply_to: cited.length === 0 ? null : cited.length === 1 ? (cited[0] as number) : cited,
+    wake,
     signal,
     state,
   });
@@ -273,10 +320,13 @@ const getMessages = async (ctx: Ctx, req: Req): Promise<Result> => {
   }
   if (filterName !== null) {
     // `for=me` means "exactly what push would have delivered": addressed to
-    // this agent (or everyone), and never its own messages — the sender is
-    // excluded from live push, so its long-poll mirror excludes it too. A
-    // plain pull without for=me stays the full party line.
-    messages = messages.filter((m) => m.sender !== filterName && Hub.addressedTo(m.to, filterName));
+    // this agent (or everyone), never its own messages, and never wake:false
+    // records — those exist for the transcript and for explicit catch-up
+    // reads, not for waking anybody. A plain pull without for=me stays the
+    // full party line, records included.
+    messages = messages.filter(
+      (m) => m.wake && m.sender !== filterName && Hub.addressedTo(m.to, filterName),
+    );
   }
   const fresh = ctx.store.getChannelById(channel.id);
   return { status: 200, body: { messages, last_seq: fresh.last_seq } };

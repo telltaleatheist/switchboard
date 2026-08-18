@@ -50,7 +50,10 @@
               <span class="dim seq">#{{ m.seq }}</span>
               <span class="dim ts">{{ m.ts | relativeTime }}</span>
               @if (m.in_reply_to !== null) {
-                <span class="dim">↩ #{{ m.in_reply_to }}</span>
+                <span class="dim">↩ {{ replyLabel(m.in_reply_to) }}</span>
+              }
+              @if (!m.wake) {
+                <span class="badge">record only</span>
               }
               <span class="badge to-badge">to: {{ toLabel(m.to) }}</span>
               @if (m.signal) {

@@ -37,10 +37,17 @@ export interface RenameAgentResponse {
 
 // ---- Channels ----------------------------------------------------------
 
+export interface MemberPresence {
+  name: string;
+  connected: boolean;
+  last_seen_at: string | null;
+}
+
 export interface ChannelSummary {
   name: string;
   status: 'open' | 'closed';
   members: string[];
+  presence: MemberPresence[];
   last_seq: number;
   created_at: string;
   note: string | null;
@@ -72,7 +79,10 @@ export interface Message {
   to: string[] | null;
   subject: string;
   body: string;
-  in_reply_to: number | null;
+  /** Scalar when one seq is cited, array when several. */
+  in_reply_to: number | number[] | null;
+  /** False = record-only: never pushed to any agent; the console still shows it. */
+  wake: boolean;
   signal: string | null;
   state: 'settled' | 'withdrawn' | null;
 }

@@ -136,6 +136,11 @@ export class LivePage implements OnInit, OnDestroy {
     return to && to.length > 0 ? to.join(', ') : 'everyone';
   }
 
+  protected replyLabel(inReplyTo: number | number[]): string {
+    const cited = Array.isArray(inReplyTo) ? inReplyTo : [inReplyTo];
+    return cited.map((s) => `#${s}`).join(', ');
+  }
+
   /**
    * Send to everyone in the channel as the reserved 'operator' sender. The
    * first line becomes the subject (protocol rule 1: the subject states the

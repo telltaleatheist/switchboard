@@ -39,11 +39,15 @@ export function renderTranscript(input: TranscriptInput): string {
   for (const m of messages) {
     lines.push(`## [${m.seq}] ${m.sender} — ${m.ts} — ${m.subject}`);
     lines.push('');
-    if (m.in_reply_to !== null) lines.push(`> in reply to [${m.in_reply_to}]`);
+    if (m.in_reply_to !== null) {
+      const cited = Array.isArray(m.in_reply_to) ? m.in_reply_to : [m.in_reply_to];
+      lines.push(`> in reply to ${cited.map((s) => `[${s}]`).join(', ')}`);
+    }
     if (m.to !== null) lines.push(`> to: ${m.to.join(', ')}`);
+    if (!m.wake) lines.push(`> record-only (woke nobody)`);
     if (m.signal !== null) lines.push(`> signal: \`${m.signal}\``);
     if (m.state !== null) lines.push(`> state: ${m.state}`);
-    if (m.in_reply_to !== null || m.to !== null || m.signal !== null || m.state !== null) lines.push('');
+    if (m.in_reply_to !== null || m.to !== null || !m.wake || m.signal !== null || m.state !== null) lines.push('');
     lines.push(m.body);
     lines.push('');
   }
