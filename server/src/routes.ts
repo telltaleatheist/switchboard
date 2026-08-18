@@ -451,6 +451,37 @@ const postChannels = (ctx: Ctx, req: Req): Result => {
   return { status: 201, body: { name: channel.name, invited } };
 };
 
+/**
+ * Patch more agents into an OPEN channel. Each newcomer gets an ordinary
+ * invite frame carrying the channel's current last_seq, so it can replay the
+ * whole party line (SPEC's late-joiner rule). Existing members are NOT
+ * notified — a "someone joined" frame would wake every member for
+ * information the members list already carries; they discover the newcomer
+ * when it speaks. Already-member names are reported, not errored: the add
+ * is idempotent from the operator's seat.
+ */
+const postChannelMembers = (ctx: Ctx, req: Req): Result => {
+  assertNoUnknownQuery(req.query, []);
+  requireOperator(req.principal);
+  const channelName = req.params['name'] as string;
+  const channel = ctx.store.resolveChannel(channelName);
+  if (!channel) throw notFound(`unknown channel '${channelName}'`);
+  if (channel.status !== 'open') throw conflict(`channel '${channelName}' is closed`);
+
+  const obj = parseBody(req, ['members']);
+  const names = requireStringArray(obj, 'members');
+  if (names.length === 0) throw badRequest("field 'members' must name at least one agent");
+  const agents = resolveMembers(ctx, names);
+
+  const existing = new Set(ctx.store.memberIds(channel.id));
+  const newcomers = agents.filter((a) => !existing.has(a.id));
+  const already = agents.filter((a) => existing.has(a.id)).map((a) => a.name);
+
+  ctx.store.addChannelMembers(channel.id, newcomers.map((a) => a.id));
+  const added = sendInvitations(ctx, channel, newcomers.map((a) => a.id));
+  return { status: 200, body: { name: channel.name, added, already } };
+};
+
 const getChannels = (ctx: Ctx, req: Req): Result => {
   assertNoUnknownQuery(req.query, ['status']);
   requireOperator(req.principal);
@@ -572,6 +603,7 @@ export const ROUTES: readonly Route[] = [
   { method: 'DELETE', pattern: '/v1/agents/{name}', auth: 'operator', handler: deleteAgent },
   { method: 'GET', pattern: '/v1/agents', auth: 'operator', handler: getAgents },
   { method: 'POST', pattern: '/v1/channels', auth: 'operator', handler: postChannels },
+  { method: 'POST', pattern: '/v1/channels/{name}/members', auth: 'operator', handler: postChannelMembers },
   { method: 'GET', pattern: '/v1/channels', auth: 'operator', handler: getChannels },
   { method: 'GET', pattern: '/v1/patch-requests', auth: 'operator', handler: getPatchRequests },
   { method: 'POST', pattern: '/v1/patch-requests/{id}/approve', auth: 'operator', handler: postPatchApprove },

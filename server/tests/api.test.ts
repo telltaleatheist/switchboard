@@ -585,6 +585,60 @@ test('control line long-poll: replay with injected token, wake on invite, empty 
   assert.equal(operator.status, 403);
 });
 
+test('adding members to an open channel invites only the newcomers', async () => {
+  await createChannel('growing', ['alpha']);
+  await send(alphaToken, 'growing', { subject: 'pre-join context', body: 'history the newcomer must be able to read' });
+
+  const betaMe = await call<{ line_seq: number }>(h, 'GET', '/v1/agents/me', { token: betaToken });
+  const betaLine = await FrameLog.open(h, `/v1/agents/me/line?token=${betaToken}&since=${betaMe.json.line_seq}`);
+  try {
+    const res = await call<{ added: string[]; already: string[] }>(h, 'POST', '/v1/channels/growing/members', {
+      token: h.operatorToken,
+      body: { members: ['beta', 'alpha'] },
+    });
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.json.added, ['beta']);
+    assert.deepEqual(res.json.already, ['alpha'], 'an existing member is reported, not errored');
+
+    // The newcomer gets an ordinary invite with the channel's high-water
+    // mark, so the §4 replay rule covers pre-join history.
+    const frame = await betaLine.next();
+    assert.equal(frame.type, 'invite');
+    assert.equal(frame.channel, 'growing');
+    assert.equal(frame.last_seq, 1);
+    assert.ok(frame.members.includes('alpha') && frame.members.includes('beta'));
+
+    const history = await call<{ messages: any[] }>(h, 'GET', '/v1/channels/growing/messages?since=0', {
+      token: betaToken,
+    });
+    assert.equal(history.json.messages.length, 1);
+    const sent = await send(betaToken, 'growing', { subject: 'late joiner', body: 'caught up', in_reply_to: 1 });
+    assert.equal(sent.seq, 2);
+
+    // Guards: unknown agent, agent token, closed channel.
+    const badAgent = await call(h, 'POST', '/v1/channels/growing/members', {
+      token: h.operatorToken,
+      body: { members: ['nobody-here'] },
+    });
+    assert.equal(badAgent.status, 400);
+    const agentAuth = await call(h, 'POST', '/v1/channels/growing/members', {
+      token: alphaToken,
+      body: { members: ['beta'] },
+    });
+    assert.equal(agentAuth.status, 403);
+
+    await createChannel('grown-shut', ['alpha']);
+    await call(h, 'POST', '/v1/channels/grown-shut/close', { token: h.operatorToken, body: {} });
+    const closed = await call(h, 'POST', '/v1/channels/grown-shut/members', {
+      token: h.operatorToken,
+      body: { members: ['beta'] },
+    });
+    assert.equal(closed.status, 409);
+  } finally {
+    betaLine.close();
+  }
+});
+
 test('a long-polling agent shows as connected in the operator listing', async () => {
   const joined = await call<{ agent: string; token: string }>(h, 'POST', '/v1/join', {
     token: (await call<{ join_key: string }>(h, 'GET', '/v1/join-key', { token: h.operatorToken })).json.join_key,

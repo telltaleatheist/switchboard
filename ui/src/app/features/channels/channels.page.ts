@@ -35,6 +35,12 @@ export class ChannelsPage implements OnInit, OnDestroy {
 
   protected readonly closingName = signal<string | null>(null);
 
+  /** Channel whose add-members editor is open (one at a time), plus its state. */
+  protected readonly addMembersName = signal<string | null>(null);
+  protected readonly addSelection = signal<Set<string>>(new Set());
+  protected readonly addingMembers = signal(false);
+  protected readonly addError = signal<string | null>(null);
+
   private readonly activityCache = new Map<string, ActivityCacheEntry>();
   protected readonly activityVersion = signal(0);
 
@@ -123,6 +129,48 @@ export class ChannelsPage implements OnInit, OnDestroy {
       this.createError.set(err instanceof ApiError ? err.message : 'Failed to create channel.');
     } finally {
       this.creating.set(false);
+    }
+  }
+
+  /** Agents not yet in this channel — what the add-members picker offers. */
+  protected nonMembers(ch: ChannelSummary): AgentSummary[] {
+    return this.agents().filter((a) => !ch.members.includes(a.name));
+  }
+
+  protected startAddMembers(name: string): void {
+    this.addMembersName.set(name);
+    this.addSelection.set(new Set());
+    this.addError.set(null);
+  }
+
+  protected cancelAddMembers(): void {
+    this.addMembersName.set(null);
+    this.addSelection.set(new Set());
+    this.addError.set(null);
+  }
+
+  protected toggleAddMember(name: string): void {
+    this.addSelection.update((set) => {
+      const next = new Set(set);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }
+
+  protected async confirmAddMembers(name: string): Promise<void> {
+    const members = [...this.addSelection()];
+    if (members.length === 0) return;
+    this.addingMembers.set(true);
+    this.addError.set(null);
+    try {
+      await this.api.addChannelMembers(name, members);
+      this.cancelAddMembers();
+      await this.refresh();
+    } catch (err) {
+      this.addError.set(err instanceof ApiError ? err.message : `Failed to add members to "${name}".`);
+    } finally {
+      this.addingMembers.set(false);
     }
   }
 

@@ -96,7 +96,14 @@
               <td class="dim">{{ ch.last_seq }}</td>
               <td class="dim">{{ lastActivity(ch) | relativeTime }}</td>
               <td class="dim">{{ ch.note || '—' }}</td>
-              <td>
+              <td class="actions">
+                <button
+                  type="button"
+                  (click)="addMembersName() === ch.name ? cancelAddMembers() : startAddMembers(ch.name)"
+                  [disabled]="nonMembers(ch).length === 0"
+                >
+                  Add members
+                </button>
                 <button
                   type="button"
                   class="danger"
@@ -107,6 +114,40 @@
                 </button>
               </td>
             </tr>
+            @if (addMembersName() === ch.name) {
+              <tr class="add-members-row">
+                <td colspan="6">
+                  <div class="member-picker">
+                    @for (agent of nonMembers(ch); track agent.name) {
+                      <label class="member-option" [class.selected]="addSelection().has(agent.name)">
+                        <input
+                          type="checkbox"
+                          [checked]="addSelection().has(agent.name)"
+                          (change)="toggleAddMember(agent.name)"
+                        />
+                        {{ agent.name }}
+                      </label>
+                    }
+                  </div>
+                  <div class="row add-members-actions">
+                    <button
+                      type="button"
+                      class="primary"
+                      (click)="confirmAddMembers(ch.name)"
+                      [disabled]="addingMembers() || addSelection().size === 0"
+                    >
+                      {{ addingMembers() ? 'Patching in…' : 'Patch in' }}
+                    </button>
+                    <button type="button" class="ghost" (click)="cancelAddMembers()" [disabled]="addingMembers()">
+                      Cancel
+                    </button>
+                  </div>
+                  @if (addError()) {
+                    <p class="error-text">{{ addError() }}</p>
+                  }
+                </td>
+              </tr>
+            }
           }
         </tbody>
       </table>

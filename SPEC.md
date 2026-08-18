@@ -273,6 +273,8 @@ GET/POST /v1/advertised-host              → the DNS name the join block leads
                                             with (editable; null = primary IP)
 POST /v1/agents/{name}/rename             → rename; pushes a renamed control frame
 POST /v1/channels                         → create channel + send invitations
+POST /v1/channels/{name}/members          → patch more agents into an open
+                                            channel (invite only the newcomers)
 GET  /v1/channels?status=…                → list
 GET  /v1/agents                           → list, with connection status
 GET  /v1/archives · GET /v1/archives/{id} → browse/export transcripts

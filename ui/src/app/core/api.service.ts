@@ -108,6 +108,11 @@ export class ApiService {
     return this.request('POST', `/v1/channels/${encodeURIComponent(name)}/close`, {});
   }
 
+  /** Patch more agents into an open channel; already-members come back in `already`, not as an error. */
+  addChannelMembers(name: string, members: string[]): Promise<{ name: string; added: string[]; already: string[] }> {
+    return this.request('POST', `/v1/channels/${encodeURIComponent(name)}/members`, { members });
+  }
+
   getChannelMessages(name: string, since: number): Promise<MessagesPage> {
     return this.request('GET', `/v1/channels/${encodeURIComponent(name)}/messages?since=${since}`);
   }

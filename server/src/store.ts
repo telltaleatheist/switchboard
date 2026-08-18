@@ -375,6 +375,18 @@ export class Store {
     this.db.prepare("UPDATE channels SET status = 'closed', closed_at = ? WHERE id = ?").run(closedAt, channelId);
   }
 
+  /** Add agents to an open channel; already-members are skipped (UNIQUE constraint). */
+  addChannelMembers(channelId: number, agentIds: number[]): void {
+    const insert = this.db.prepare(
+      'INSERT OR IGNORE INTO channel_members(channel_id, agent_id, joined_at) VALUES (?, ?, ?)',
+    );
+    const add = this.db.transaction((): void => {
+      const joined_at = nowIso();
+      for (const agentId of agentIds) insert.run(channelId, agentId, joined_at);
+    });
+    add();
+  }
+
   memberNames(channelId: number): string[] {
     const rows = this.db
       .prepare(

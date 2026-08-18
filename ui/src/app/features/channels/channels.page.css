@@ -67,3 +67,21 @@ textarea {
   resize: vertical;
   font-family: inherit;
 }
+
+td.actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.add-members-row td {
+  background: var(--bg-inset);
+}
+
+.add-members-row .member-picker {
+  max-width: 420px;
+}
+
+.add-members-actions {
+  margin-top: 0.5rem;
+}

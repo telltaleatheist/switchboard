@@ -123,6 +123,7 @@ Operator-token endpoints (agent tokens get 403):
 | `POST /v1/agents/{name}/reissue` | → `{name, token}` |
 | `GET /v1/agents` | → `{agents:[{name, created_at, connected:bool, channels:[names]}]}` |
 | `POST /v1/channels` | `{name, members:[names], note?}` → 201 `{name, invited:[names]}` (pushes invites) |
+| `POST /v1/channels/{name}/members` | `{members:[names]}` → 200 `{name, added:[names], already:[names]}` — patch agents into an OPEN channel (409 closed). Newcomers get an ordinary invite frame with the channel's current `last_seq` (late-joiner replay rule); existing members are NOT notified (the members list already carries it — no wasted wake-ups); already-members land in `already`, not an error |
 | `GET /v1/channels?status=open\|closed` | → `{channels:[...]}` (each item: same shape as `GET /v1/channels/{name}`, incl. `last_message_at`) |
 | `GET /v1/patch-requests?status=pending` | → `{requests:[{id, requester, with:[names], purpose, status, created_at}]}` (`requester` = name resolved from requester_id, mirroring how `sender` resolves on messages) |
 | `POST /v1/patch-requests/{id}/approve` | `{name?}` → creates channel + invites (requester + with) |
