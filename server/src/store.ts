@@ -99,6 +99,14 @@ export class Store {
   createAgent(name: string, tokenHash: string): AgentRow {
     const existing = this.findAgentByName(name);
     if (existing) throw conflict(`agent '${name}' already exists`);
+    const retired = this.db
+      .prepare('SELECT 1 FROM agents WHERE name = ? AND deleted_at IS NOT NULL')
+      .get(name);
+    if (retired) {
+      throw conflict(
+        `the name '${name}' is retired: a deleted agent's message history still references it — pick another name`,
+      );
+    }
     const created_at = nowIso();
     const info = this.db
       .prepare('INSERT INTO agents(name, token_hash, created_at, line_seq) VALUES (?, ?, ?, 0)')
@@ -116,12 +124,17 @@ export class Store {
     this.db.prepare('UPDATE agents SET token_hash = ? WHERE id = ?').run(tokenHash, agentId);
   }
 
+  /** Live agents only — soft-deleted rows are invisible to all lookups. */
   findAgentByName(name: string): AgentRow | undefined {
-    return this.db.prepare('SELECT * FROM agents WHERE name = ?').get(name) as AgentRow | undefined;
+    return this.db.prepare('SELECT * FROM agents WHERE name = ? AND deleted_at IS NULL').get(name) as
+      | AgentRow
+      | undefined;
   }
 
   findAgentByTokenHash(tokenHash: string): AgentRow | undefined {
-    return this.db.prepare('SELECT * FROM agents WHERE token_hash = ?').get(tokenHash) as AgentRow | undefined;
+    return this.db
+      .prepare("SELECT * FROM agents WHERE token_hash = ? AND token_hash != '' AND deleted_at IS NULL")
+      .get(tokenHash) as AgentRow | undefined;
   }
 
   getAgentById(id: number): AgentRow {
@@ -131,7 +144,43 @@ export class Store {
   }
 
   listAgents(): AgentRow[] {
-    return this.db.prepare('SELECT * FROM agents ORDER BY name').all() as AgentRow[];
+    return this.db.prepare('SELECT * FROM agents WHERE deleted_at IS NULL ORDER BY name').all() as AgentRow[];
+  }
+
+  /**
+   * Remove an agent. Refused (409) while the agent is a member of any OPEN
+   * channel. If nothing references the row (never sent a message), it is
+   * hard-deleted and the name is freed; otherwise it becomes a tombstone —
+   * invisible everywhere, token revoked, name retired — so message history
+   * and transcripts keep resolving the sender. Returns which happened.
+   */
+  deleteAgent(name: string): { mode: 'hard' | 'soft' } {
+    const del = this.db.transaction((): { mode: 'hard' | 'soft' } => {
+      const agent = this.findAgentByName(name);
+      if (!agent) throw notFound(`unknown agent '${name}'`);
+      const open = this.db
+        .prepare(
+          "SELECT c.name FROM channels c JOIN channel_members m ON m.channel_id = c.id WHERE m.agent_id = ? AND c.status = 'open'",
+        )
+        .all(agent.id) as { name: string }[];
+      if (open.length > 0) {
+        throw conflict(
+          `agent '${name}' is a member of open channel(s) ${open.map((c) => `'${c.name}'`).join(', ')} — close them first`,
+        );
+      }
+      const sent = this.db.prepare('SELECT COUNT(*) AS n FROM messages WHERE sender_id = ?').get(agent.id) as {
+        n: number;
+      };
+      if (sent.n === 0) {
+        this.db.prepare('DELETE FROM agents WHERE id = ?').run(agent.id);
+        return { mode: 'hard' };
+      }
+      this.db
+        .prepare("UPDATE agents SET deleted_at = ?, token_hash = '' WHERE id = ?")
+        .run(nowIso(), agent.id);
+      return { mode: 'soft' };
+    });
+    return del();
   }
 
   requireAgentByName(name: string): AgentRow {

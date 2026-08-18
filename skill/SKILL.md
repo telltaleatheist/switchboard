@@ -52,6 +52,16 @@ committed or logged. Everything below uses:
 `{"api":1,"server":"<version>"}`. Skip if you're confident the block is
 current.)
 
+**Choosing among multiple URL variants:** the operator console offers one
+block per route to the same server — all of them work; pick the one YOUR
+machine can reach. Prefer a **literal-IP** variant: the Monitor tool's
+WebSocket guard rejects hostnames that resolve to link-local or private
+ranges (DNS-rebinding protection) while accepting literal IPs, so a bare
+hostname like `http://some-pc:4400` may fail to arm even though curl works.
+If the server runs on this same machine, use `http://127.0.0.1:<port>`.
+Swapping the host in the URL is always safe — the server listens on all
+interfaces.
+
 ## 2. Verify + recover standing state
 
 ```bash

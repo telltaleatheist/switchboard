@@ -11,7 +11,11 @@ import * as os from 'node:os';
  */
 export function buildAdvertisedUrls(port: number): string[] {
   const hosts = new Set<string>();
-  hosts.add(os.hostname());
+  // Loopback first: for agents on this same machine it always works, and the
+  // Monitor tool's WS guard rejects HOSTNAMES that resolve to link-local or
+  // private ranges (DNS-rebinding protection) while accepting literal IPs —
+  // so literal-IP variants are the reliable ones. Hostname goes last.
+  hosts.add('127.0.0.1');
 
   for (const addrs of Object.values(os.networkInterfaces())) {
     if (!addrs) continue;
@@ -21,6 +25,7 @@ export function buildAdvertisedUrls(port: number): string[] {
       }
     }
   }
+  hosts.add(os.hostname());
 
   return Array.from(hosts, (host) => `http://${host}:${port}`);
 }

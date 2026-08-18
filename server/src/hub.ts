@@ -103,6 +103,28 @@ export class Hub {
     this.releaseWaiters(channelId);
   }
 
+  /** Close every socket a (just-deleted) agent holds — line and channel. */
+  closeAgentSockets(agentId: number, reason: string): void {
+    for (const conn of [...this.lineConns]) {
+      if (conn.agentId !== agentId) continue;
+      try {
+        conn.socket.close(1000, reason);
+      } catch {
+        conn.socket.terminate();
+      }
+      this.lineConns.delete(conn);
+    }
+    for (const conn of [...this.channelConns]) {
+      if (conn.agentId !== agentId) continue;
+      try {
+        conn.socket.close(1000, reason);
+      } catch {
+        conn.socket.terminate();
+      }
+      this.channelConns.delete(conn);
+    }
+  }
+
   /** Broadcast the shutdown frame on every open socket and close them (1001). */
   broadcastShutdown(): void {
     const frame = JSON.stringify({ type: 'shutdown' });

@@ -9,7 +9,7 @@ import * as path from 'node:path';
 
 export type Db = Database.Database;
 
-export const SCHEMA_VERSION = '1';
+export const SCHEMA_VERSION = '2';
 export const DB_FILENAME = 'switchboard.db';
 export const ARCHIVE_DIRNAME = 'archives';
 
@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS agents (
   name       TEXT NOT NULL UNIQUE,
   token_hash TEXT NOT NULL,
   created_at TEXT NOT NULL,
-  line_seq   INTEGER NOT NULL DEFAULT 0
+  line_seq   INTEGER NOT NULL DEFAULT 0,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS channels (
@@ -126,13 +127,43 @@ export function openDatabase(dataDir: string): OpenedDb {
   if (existing === undefined) {
     db.prepare('INSERT INTO meta(key, value) VALUES (?, ?)').run('schema_version', SCHEMA_VERSION);
   } else if (existing.value !== SCHEMA_VERSION) {
-    db.close();
-    throw new Error(
-      `database at ${dbPath} has schema_version ${existing.value}, this server speaks ${SCHEMA_VERSION}`,
-    );
+    migrate(db, existing.value, dbPath);
   }
 
   return { db, dbPath, archiveDir };
+}
+
+/**
+ * Stepwise migration ladder. Each entry upgrades FROM its key version to the
+ * next. Unknown (newer) versions still fail loudly — downgrades are refused.
+ */
+const MIGRATIONS: Record<string, (db: Db) => string> = {
+  '1': (db) => {
+    db.exec('ALTER TABLE agents ADD COLUMN deleted_at TEXT');
+    return '2';
+  },
+};
+
+function migrate(db: Db, fromVersion: string, dbPath: string): void {
+  let version = fromVersion;
+  const apply = db.transaction(() => {
+    while (version !== SCHEMA_VERSION) {
+      const step = MIGRATIONS[version];
+      if (!step) {
+        throw new Error(
+          `database at ${dbPath} has schema_version ${version}, this server speaks ${SCHEMA_VERSION} and has no migration path`,
+        );
+      }
+      version = step(db);
+    }
+    db.prepare('UPDATE meta SET value = ? WHERE key = ?').run(SCHEMA_VERSION, 'schema_version');
+  });
+  try {
+    apply();
+  } catch (err) {
+    db.close();
+    throw err;
+  }
 }
 
 /** Flush the WAL into the main database file — part of graceful shutdown. */

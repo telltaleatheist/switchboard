@@ -274,6 +274,20 @@ const postAgentReissue = (ctx: Ctx, req: Req): Result => {
   return { status: 200, body: { name: agent.name, token } };
 };
 
+const deleteAgent = (ctx: Ctx, req: Req): Result => {
+  assertNoUnknownQuery(req.query, []);
+  requireOperator(req.principal);
+  parseBody(req, []);
+  const name = req.params['name'] as string;
+  // Resolve BEFORE deleting so the sockets of a hard-deleted agent (whose id
+  // is gone afterwards) can still be closed.
+  const agent = ctx.store.findAgentByName(name);
+  if (!agent) throw notFound(`unknown agent '${name}'`);
+  const { mode } = ctx.store.deleteAgent(name);
+  ctx.hub.closeAgentSockets(agent.id, 'agent-deleted');
+  return { status: 200, body: { name, deleted: mode } };
+};
+
 const getAgents = (ctx: Ctx, req: Req): Result => {
   assertNoUnknownQuery(req.query, []);
   requireOperator(req.principal);
@@ -414,6 +428,7 @@ export const ROUTES: readonly Route[] = [
 
   { method: 'POST', pattern: '/v1/agents', auth: 'operator', handler: postAgents },
   { method: 'POST', pattern: '/v1/agents/{name}/reissue', auth: 'operator', handler: postAgentReissue },
+  { method: 'DELETE', pattern: '/v1/agents/{name}', auth: 'operator', handler: deleteAgent },
   { method: 'GET', pattern: '/v1/agents', auth: 'operator', handler: getAgents },
   { method: 'POST', pattern: '/v1/channels', auth: 'operator', handler: postChannels },
   { method: 'GET', pattern: '/v1/channels', auth: 'operator', handler: getChannels },

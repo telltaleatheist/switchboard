@@ -763,3 +763,66 @@ test('CORS: preflight succeeds and responses carry the allow-origin header', asy
   const exposed = (versioned.headers.get('access-control-expose-headers') ?? '').toLowerCase();
   assert.ok(exposed.includes('idempotency-replayed'), 'Idempotency-Replayed must be readable from a browser');
 });
+
+test('agent deletion: hard when unused, soft when history references it', async () => {
+  // Unknown agent -> 404.
+  const missing = await call(h, 'DELETE', '/v1/agents/no-such-agent', { token: h.operatorToken });
+  assert.equal(missing.status, 404);
+
+  // Never-used agent: hard delete frees the name completely.
+  const doomed = await call<{ name: string; token: string }>(h, 'POST', '/v1/agents', {
+    token: h.operatorToken,
+    body: { name: 'doomed' },
+  });
+  assert.equal(doomed.status, 201);
+  const hard = await call<{ deleted: string }>(h, 'DELETE', '/v1/agents/doomed', { token: h.operatorToken });
+  assert.equal(hard.status, 200);
+  assert.equal(hard.json.deleted, 'hard');
+  const listed = await call<{ agents: any[] }>(h, 'GET', '/v1/agents', { token: h.operatorToken });
+  assert.ok(!listed.json.agents.some((a) => a.name === 'doomed'), 'hard-deleted agent must vanish from the list');
+  const staleToken = await call(h, 'GET', '/v1/agents/me', { token: doomed.json.token });
+  assert.equal(staleToken.status, 401, 'a deleted agent token must stop working');
+  const reused = await call(h, 'POST', '/v1/agents', { token: h.operatorToken, body: { name: 'doomed' } });
+  assert.equal(reused.status, 201, 'a hard-deleted name must be reusable');
+  await call(h, 'DELETE', '/v1/agents/doomed', { token: h.operatorToken });
+
+  // Agent with message history: refuse while in an open channel, then soft-delete.
+  const phoenix = await call<{ name: string; token: string }>(h, 'POST', '/v1/agents', {
+    token: h.operatorToken,
+    body: { name: 'phoenix' },
+  });
+  assert.equal(phoenix.status, 201);
+  const chan = await call(h, 'POST', '/v1/channels', {
+    token: h.operatorToken,
+    body: { name: 'deletion-test', members: ['phoenix', 'alpha'] },
+  });
+  assert.equal(chan.status, 201);
+  const blocked = await call(h, 'DELETE', '/v1/agents/phoenix', { token: h.operatorToken });
+  assert.equal(blocked.status, 409, 'deleting a member of an open channel must be refused');
+
+  const sent = await call(h, 'POST', '/v1/channels/deletion-test/messages', {
+    token: phoenix.json.token,
+    body: { subject: 'last words', body: 'history must keep resolving me' },
+  });
+  assert.equal(sent.status, 201);
+  const closed = await call(h, 'POST', '/v1/channels/deletion-test/close', { token: h.operatorToken });
+  assert.equal(closed.status, 200);
+
+  const soft = await call<{ deleted: string }>(h, 'DELETE', '/v1/agents/phoenix', { token: h.operatorToken });
+  assert.equal(soft.status, 200);
+  assert.equal(soft.json.deleted, 'soft');
+  const listed2 = await call<{ agents: any[] }>(h, 'GET', '/v1/agents', { token: h.operatorToken });
+  assert.ok(!listed2.json.agents.some((a) => a.name === 'phoenix'), 'soft-deleted agent must vanish from the list');
+  const softToken = await call(h, 'GET', '/v1/agents/me', { token: phoenix.json.token });
+  assert.equal(softToken.status, 401, 'a soft-deleted agent token must stop working');
+  const retired = await call(h, 'POST', '/v1/agents', { token: h.operatorToken, body: { name: 'phoenix' } });
+  assert.equal(retired.status, 409, 'a name referenced by history must be retired, not reusable');
+
+  // The closed channel's history must still resolve the deleted sender's name.
+  const history = await call<{ messages: any[] }>(h, 'GET', '/v1/channels/deletion-test/messages?since=0', {
+    token: h.operatorToken,
+  });
+  assert.equal(history.status, 200);
+  const last = history.json.messages.find((m) => m.subject === 'last words');
+  assert.equal(last?.sender, 'phoenix', 'history must keep resolving a soft-deleted sender');
+});
