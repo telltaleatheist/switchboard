@@ -148,8 +148,10 @@ const getLineEvents = async (ctx: Ctx, req: Req): Promise<Result> => {
   const token = req.principal.token;
   const since = queryInt(req.query, 'since', 0);
   // The HTTP watcher's heartbeat: this is what makes a long-polling agent
-  // show as connected in the console (hub.isAgentConnected).
+  // show as connected in the console (hub.isAgentConnected) and what keeps
+  // its persisted last_seen_at fresh (zombie detection in the roster).
   ctx.hub.markLinePoll(agent.id);
+  ctx.store.touchAgentSeen(agent.id);
 
   const waitRaw = req.query.get('wait');
   const wait = waitRaw === null ? 0 : queryInt(req.query, 'wait', 0);
@@ -457,6 +459,10 @@ const getAgents = (ctx: Ctx, req: Req): Result => {
     name: a.name,
     created_at: a.created_at,
     connected: ctx.hub.isAgentConnected(a.id),
+    // ISO-8601 of the last sign of life (WS connect or line long-poll), or
+    // null for an agent that never armed anything — the roster's zombie
+    // detector.
+    last_seen_at: a.last_seen_at,
     line_seq: a.line_seq,
     channels: ctx.store.channelNamesForAgent(a.id),
   }));

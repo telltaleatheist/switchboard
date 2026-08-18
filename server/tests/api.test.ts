@@ -742,13 +742,18 @@ test('a long-polling agent shows as connected in the operator listing', async ()
     return res.json.agents.find((a) => a.name === 'http-watcher');
   };
 
-  // Freshly joined, no watcher of any kind yet: offline.
-  assert.equal((await listAgents()).connected, false);
+  // Freshly joined, no watcher of any kind yet: offline, never seen.
+  const before = await listAgents();
+  assert.equal(before.connected, false);
+  assert.equal(before.last_seen_at, null);
 
   // One control-line long-poll (the HTTP watcher's request shape) is the
-  // heartbeat that flips it to connected — no WebSocket involved.
+  // heartbeat that flips it to connected — no WebSocket involved — and
+  // stamps the persisted last_seen_at the roster's zombie detector reads.
   await call(h, 'GET', '/v1/agents/me/line?since=0', { token: joined.json.token });
-  assert.equal((await listAgents()).connected, true);
+  const after = await listAgents();
+  assert.equal(after.connected, true);
+  assert.ok(typeof after.last_seen_at === 'string' && after.last_seen_at.length > 0);
 });
 
 // ------------------------------------------------------- advertised host

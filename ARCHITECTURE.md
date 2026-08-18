@@ -71,7 +71,8 @@ node server/dist/index.js --port 4400 --host 0.0.0.0 --data-dir <path>
 ```sql
 meta(key TEXT PRIMARY KEY, value TEXT)                  -- schema_version, join_key
 agents(id INTEGER PK, name TEXT UNIQUE, token_hash TEXT,
-       created_at TEXT, line_seq INTEGER DEFAULT 0)
+       created_at TEXT, line_seq INTEGER DEFAULT 0,
+       deleted_at TEXT, last_seen_at TEXT)
 channels(id INTEGER PK, name TEXT, status TEXT,          -- open|closed
          created_at TEXT, closed_at TEXT, last_seq INTEGER DEFAULT 0,
          note TEXT)
@@ -121,7 +122,7 @@ Operator-token endpoints (agent tokens get 403):
 | `POST /v1/advertised-host` | `{host:"switchboard.my-pc.example.com"}` or `{host:null}` (clear) → `{host}`. Bare host only — scheme/port/path → 400 (the console composes the URL) |
 | `POST /v1/agents/{name}/rename` | `{name:"<new-slug>"}` → 200 `{old, name}`. 409 if the new name is taken or retired (rename is NOT deduped — the operator chose that exact name on purpose). Message attribution follows automatically (senders resolve by id at read time). Persists + pushes a `renamed` frame on the agent's control line. Historical `to_json` arrays keep the old name — display-only, never used for delivery after the fact. |
 | `POST /v1/agents/{name}/reissue` | → `{name, token}` |
-| `GET /v1/agents` | → `{agents:[{name, created_at, connected:bool, channels:[names]}]}` |
+| `GET /v1/agents` | → `{agents:[{name, created_at, connected:bool, last_seen_at, channels:[names]}]}` (`last_seen_at` = ISO-8601 of the last WS connect or line long-poll, null if never — persisted, throttled to one write per 30 s per agent) |
 | `POST /v1/channels` | `{name, members:[names], note?}` → 201 `{name, invited:[names]}` (pushes invites) |
 | `POST /v1/channels/{name}/members` | `{members:[names]}` → 200 `{name, added:[names], already:[names]}` — patch agents into an OPEN channel (409 closed). Newcomers get an ordinary invite frame with the channel's current `last_seq` (late-joiner replay rule); existing members are NOT notified (the members list already carries it — no wasted wake-ups); already-members land in `already`, not an error |
 | `DELETE /v1/channels/{name}/members/{agent}` | → 200 `{name, removed}` — unpatch one agent from an OPEN channel (409 closed; 400 not-a-member; 404 unknown). The removed agent gets a persisted `removed` control frame and its channel sockets close (1000, "removed-from-channel"); remaining members are NOT woken, mirroring joins. Agent deletion (`DELETE /v1/agents/{name}`) cascades through this automatically — open memberships are dropped in the delete transaction (no frames; the agent is gone) and the response carries `removed_from:[channel names]`. A channel may be left with zero members; it stays open until closed or idle-expired |

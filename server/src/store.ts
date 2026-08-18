@@ -27,6 +27,7 @@ export interface AgentRow {
   token_hash: string;
   created_at: string;
   line_seq: number;
+  last_seen_at: string | null;
 }
 
 export interface ChannelRow {
@@ -218,7 +219,7 @@ export class Store {
     const info = this.db
       .prepare("INSERT INTO agents(name, token_hash, created_at, line_seq) VALUES (?, '', ?, 0)")
       .run(OPERATOR_NAME, created_at);
-    return { id: Number(info.lastInsertRowid), name: OPERATOR_NAME, token_hash: '', created_at, line_seq: 0 };
+    return { id: Number(info.lastInsertRowid), name: OPERATOR_NAME, token_hash: '', created_at, line_seq: 0, last_seen_at: null };
   }
 
   /** A name is taken by a live agent OR retired by a tombstone — both 409. */
@@ -267,6 +268,7 @@ export class Store {
       token_hash: tokenHash,
       created_at,
       line_seq: 0,
+      last_seen_at: null,
     };
   }
 
@@ -335,6 +337,21 @@ export class Store {
       return { mode: 'soft', removedFrom };
     });
     return del();
+  }
+
+  /**
+   * Record that an agent showed signs of life (a receive path: WS connect or
+   * line long-poll). Throttled in memory so a healthy watcher's ~1 request a
+   * minute doesn't become a write a minute per agent forever.
+   */
+  private readonly lastSeenWrites = new Map<number, number>();
+
+  touchAgentSeen(agentId: number): void {
+    const last = this.lastSeenWrites.get(agentId);
+    const now = Date.now();
+    if (last !== undefined && now - last < 30_000) return;
+    this.lastSeenWrites.set(agentId, now);
+    this.db.prepare('UPDATE agents SET last_seen_at = ? WHERE id = ?').run(nowIso(), agentId);
   }
 
   /** Drop one agent's membership in one channel. True if a row was removed. */

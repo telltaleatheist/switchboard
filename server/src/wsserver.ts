@@ -114,6 +114,7 @@ function route(ctx: Ctx, wss: WebSocketServer, req: http.IncomingMessage, socket
     if (principal.kind !== 'agent') throw forbidden('the control line requires an agent token');
     const agentId = principal.agent.id;
 
+    ctx.store.touchAgentSeen(agentId);
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit('connection', ws, req);
       const conn: LineConnection = { socket: ws, agentId, token: principal.token };

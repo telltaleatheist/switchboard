@@ -9,7 +9,7 @@ import * as path from 'node:path';
 
 export type Db = Database.Database;
 
-export const SCHEMA_VERSION = '2';
+export const SCHEMA_VERSION = '3';
 export const DB_FILENAME = 'switchboard.db';
 export const ARCHIVE_DIRNAME = 'archives';
 
@@ -20,12 +20,13 @@ CREATE TABLE IF NOT EXISTS meta (
 );
 
 CREATE TABLE IF NOT EXISTS agents (
-  id         INTEGER PRIMARY KEY,
-  name       TEXT NOT NULL UNIQUE,
-  token_hash TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  line_seq   INTEGER NOT NULL DEFAULT 0,
-  deleted_at TEXT
+  id           INTEGER PRIMARY KEY,
+  name         TEXT NOT NULL UNIQUE,
+  token_hash   TEXT NOT NULL,
+  created_at   TEXT NOT NULL,
+  line_seq     INTEGER NOT NULL DEFAULT 0,
+  deleted_at   TEXT,
+  last_seen_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS channels (
@@ -141,6 +142,10 @@ const MIGRATIONS: Record<string, (db: Db) => string> = {
   '1': (db) => {
     db.exec('ALTER TABLE agents ADD COLUMN deleted_at TEXT');
     return '2';
+  },
+  '2': (db) => {
+    db.exec('ALTER TABLE agents ADD COLUMN last_seen_at TEXT');
+    return '3';
   },
 };
 

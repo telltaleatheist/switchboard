@@ -14,6 +14,8 @@ export interface AgentSummary {
   name: string;
   created_at: string;
   connected: boolean;
+  /** ISO-8601 of the last sign of life (WS or long-poll), null = never armed anything. */
+  last_seen_at: string | null;
   channels: string[];
 }
 
