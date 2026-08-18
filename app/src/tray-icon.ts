@@ -1,13 +1,31 @@
 import { nativeImage, type NativeImage } from 'electron';
+import { iconPath } from './paths';
+
+/**
+ * Loads the real app icon (build-resources/icon.png in dev, resources/icon.png
+ * packaged). If the file is missing the old generated placeholder square comes
+ * back instead — with a loud stderr line, never silently: a wrong-looking tray
+ * icon should say why.
+ */
+export function loadAppIcon(): NativeImage {
+  const image = nativeImage.createFromPath(iconPath());
+  if (!image.isEmpty()) return image;
+  console.error(`[switchboard-app] app icon not found at ${iconPath()}; using placeholder`);
+  return createPlaceholderIcon();
+}
+
+/** The app icon scaled for the system tray (Windows wants 16px there). */
+export function loadTrayIcon(): NativeImage {
+  const image = loadAppIcon();
+  return image.isEmpty() ? image : image.resize({ width: 16, height: 16 });
+}
 
 /**
  * A simple generated placeholder icon: a flat 16x16 square in a single
- * accent color. Built from a raw RGBA buffer at runtime instead of shipping
- * a binary asset file — there is nothing to design-review yet, and this
- * keeps the app/ package free of binary checked-in assets. Swap for a real
- * icon whenever branding happens.
+ * accent color, built from a raw RGBA buffer. Kept only as the loud fallback
+ * for a missing icon file.
  */
-export function createPlaceholderIcon(): NativeImage {
+function createPlaceholderIcon(): NativeImage {
   const size = 16;
   const buffer = Buffer.alloc(size * size * 4);
 

@@ -44,3 +44,16 @@ export function serverEntryPath(): string {
 export function uiIndexPath(): string {
   return path.join(repoRoot(), 'ui', 'dist', 'ui', 'browser', 'index.html');
 }
+
+/**
+ * The app icon PNG for runtime use (window + tray). The packaged exe and
+ * installer get theirs at build time from buildResources/icon.png; this is
+ * the same file, shipped once more via extraResources so the running app
+ * can load it too (buildResources itself is never packaged).
+ */
+export function iconPath(): string {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'icon.png');
+  }
+  return path.join(repoRoot(), 'build-resources', 'icon.png');
+}

@@ -47,6 +47,12 @@ extraResources:
   # server's dependencies have to be handed to it as their own root.
   - from: staging/server-runtime/node_modules
     to: server/node_modules
+  # The runtime copy of the app icon (window + tray load it from
+  # process.resourcesPath — see app/src/paths.ts iconPath). The
+  # installer/exe icons are generated separately by electron-builder from
+  # buildResources/icon.png.
+  - from: build-resources/icon.png
+    to: icon.png
 
 asar: true
 

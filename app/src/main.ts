@@ -5,7 +5,7 @@ import { IPC_GET_CONFIG } from './ipc-channels';
 import { serverEntryPath, uiIndexPath } from './paths';
 import { buildAdvertisedUrls } from './network';
 import { ServerManager } from './server-manager';
-import { createPlaceholderIcon } from './tray-icon';
+import { loadAppIcon, loadTrayIcon } from './tray-icon';
 import type { SwitchboardConfig } from './types';
 
 const SERVER_PORT = 4400;
@@ -28,7 +28,7 @@ function createMainWindow(): BrowserWindow {
     width: 1280,
     height: 800,
     show: true,
-    icon: createPlaceholderIcon(),
+    icon: loadAppIcon(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -78,7 +78,7 @@ function showMainWindow(): void {
 }
 
 function createTray(): Tray {
-  const trayIcon = new Tray(createPlaceholderIcon());
+  const trayIcon = new Tray(loadTrayIcon());
   trayIcon.setToolTip('Switchboard');
   trayIcon.setContextMenu(
     Menu.buildFromTemplate([
