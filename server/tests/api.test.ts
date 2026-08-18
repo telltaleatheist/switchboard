@@ -753,6 +753,8 @@ test('CORS: preflight succeeds and responses carry the allow-origin header', asy
   });
   assert.equal(preflight.status, 204);
   assert.equal(preflight.headers.get('access-control-allow-origin'), '*');
+  const allowedMethods = preflight.headers.get('access-control-allow-methods') ?? '';
+  assert.ok(allowedMethods.includes('DELETE'), 'the browser preflights DELETE for agent deletion');
   const allowedHeaders = (preflight.headers.get('access-control-allow-headers') ?? '').toLowerCase();
   for (const name of ['authorization', 'content-type', 'idempotency-key']) {
     assert.ok(allowedHeaders.includes(name), `preflight must allow the ${name} header`);

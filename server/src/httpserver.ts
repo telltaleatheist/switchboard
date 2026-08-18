@@ -23,7 +23,7 @@ export function createHttpServer(ctx: Ctx, routes: readonly Route[]): http.Serve
     res.setHeader('Access-Control-Expose-Headers', 'Idempotency-Replayed');
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
         'Access-Control-Allow-Headers': 'Authorization, Content-Type, Idempotency-Key',
         'Access-Control-Max-Age': '86400',
       });
