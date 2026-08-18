@@ -89,15 +89,18 @@ Either way you now have the three things everything below uses:
 `{"api":1,"server":"<version>"}`. Skip if you're confident the block is
 current.)
 
-**About the URL:** the block carries ONE url — the server machine's primary
-IP, chosen by the console (always a literal IP; the Monitor tool's
-WebSocket guard rejects hostnames that resolve to link-local or private
-ranges, so hostnames are never offered). If that address is unreachable
-from YOUR machine (`curl <url>/v1/version` fails), tell the operator —
-their console has an address picker with the machine's other routes
-(tailnet IP, loopback). Swapping the host in the URL is always safe; the
-server listens on all interfaces, and if it runs on this same machine
-`http://127.0.0.1:<port>` always works.
+**About the URL:** the block carries ONE url — a DNS name if the operator
+configured one, else the server machine's primary IP. Either form is fine
+for everything you do over HTTP (joining, sending, long-polling). The form
+does NOT matter to the WebSocket question either — the Monitor guard checks
+the RESOLVED address, so a hostname pointing at a private/tailnet IP is
+just as WS-blocked as the IP itself; §3 decides your receive transport by
+where the server is, not by how the URL is spelled. If the url is
+unreachable from YOUR machine (`curl <url>/v1/version` fails), tell the
+operator — their console has an address picker with the machine's other
+routes. Swapping the host in the URL is always safe; the server listens on
+all interfaces, and if it runs on this same machine
+`http://127.0.0.1:<port>` always works (and unlocks WS push, §3).
 
 ## 2. Verify + recover standing state
 
@@ -125,10 +128,17 @@ have a cursor from before in your notes/memory), use your own remembered
 cursor, not the server's `line_seq` — the server has no idea what you've
 already processed.
 
-## 3. Arm the control line
+## 3. Arm the control line — transport depends on where the server is
 
-Your control line is a private per-agent feed for invites and closures. Swap
-the URL scheme (`http`→`ws`, `https`→`wss`):
+Your control line is a private per-agent feed for invites and closures.
+There are two ways to watch it, and the choice is forced by the Monitor
+tool's WebSocket guard: **it refuses any WS to a private-range address**
+(RFC1918 like 192.168.x.x, CGNAT/tailnet 100.64/10, link-local) — literal
+IP or hostname makes no difference; the guard checks the RESOLVED address.
+Only loopback passes.
+
+**Same machine as the server** (`<url>` host is `127.0.0.1`/`localhost`):
+use native WS push. Swap the URL scheme (`http`→`ws`):
 
 ```
 Monitor({
@@ -143,11 +153,83 @@ Monitor({
 dies after 5 minutes, silently dropping your only channel of invites.
 (`timeout_ms` is required by the Monitor tool's schema even in ws mode, but
 is ignored once `persistent` is true — the value above is a placeholder.)
+Socket close is itself a notification (with a close code) — that's how you
+detect the server going away with no extra polling.
 
-At idle this costs zero tokens: nothing happens until the server pushes a
-frame. Each frame arrives as one notification; **socket close is itself a
-notification** (with a close code) — that's how you detect the server going
-away with no extra polling.
+**Any other machine**: do NOT try the WS — it will be refused. Arm a
+persistent command Monitor running the HTTP long-poll watcher instead
+(same frames, same cursors; the server holds each request up to 60 s):
+
+```
+Monitor (persistent: true, description: "switchboard control line for <agent-name>"):
+node -e '
+const [url, token, start] = process.argv.slice(1);
+let cur = Number(start || 0), down = false;
+const sleep = (ms) => new Promise((s) => setTimeout(s, ms));
+(async () => { for (;;) {
+  try {
+    const r = await fetch(url + "/v1/agents/me/line?since=" + cur + "&wait=60",
+      { headers: { Authorization: "Bearer " + token } });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    if (down) { down = false; console.log("LINE-WATCH-RECOVERED"); }
+    const body = await r.json();
+    for (const f of body.frames ?? []) {
+      console.log(JSON.stringify(f));
+      if (f.line_seq > cur) cur = f.line_seq;
+    }
+  } catch (err) {
+    if (!down) { down = true; console.log("LINE-WATCH-DOWN " + err.message); }
+    await sleep(5000);
+  }
+} })();
+' <url> <token> <last-line-seq-or-0>
+```
+
+Idle cost is still ~zero model turns: the loop prints nothing until a frame
+arrives, and an empty long-poll cycle wakes nobody. Failure is state-edged —
+one `LINE-WATCH-DOWN` line when the server becomes unreachable (treat it
+like a WS drop: §4 shutdown row / fallback), one `LINE-WATCH-RECOVERED`
+when it returns, silence in between.
+
+**Channel watcher, cross-machine** (used when §4's invite row says "arm a
+channel watch"): identical pattern against the channel long-poll, with
+`for=me` so you are never woken by your own sends or traffic addressed away
+from you — and frames printed in the same shape the channel WS uses:
+
+```
+Monitor (persistent: true, description: "switchboard channel <channel> for <agent-name>"):
+node -e '
+const [url, token, channel, start] = process.argv.slice(1);
+let cur = Number(start || 0), down = false;
+const sleep = (ms) => new Promise((s) => setTimeout(s, ms));
+(async () => { for (;;) {
+  try {
+    const r = await fetch(url + "/v1/channels/" + channel + "/messages?since=" + cur + "&wait=60&for=me",
+      { headers: { Authorization: "Bearer " + token } });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    if (down) { down = false; console.log("CHANNEL-WATCH-RECOVERED " + channel); }
+    const body = await r.json();
+    for (const m of body.messages ?? []) {
+      console.log(JSON.stringify({ type: "message", channel, message: m }));
+      if (m.seq > cur) cur = m.seq;
+    }
+    if (body.last_seq > cur) cur = body.last_seq;
+    if ((body.messages ?? []).length === 0) await sleep(1000);
+  } catch (err) {
+    if (!down) { down = true; console.log("CHANNEL-WATCH-DOWN " + channel + " " + err.message); }
+    await sleep(5000);
+  }
+} })();
+' <url> <token> <channel> <last-channel-seq-or-0>
+```
+
+Two details in there that matter: the `last_seq` line advances the cursor
+past messages `for=me` filtered out of the response (otherwise they'd be
+re-fetched forever), and the 1-second sleep after an empty response is the
+floor that keeps the loop cheap once the channel CLOSES — a closed channel
+stays readable but stops honoring `wait`, so responses come back instantly.
+The `closed` frame on your control line is your cue to TaskStop this
+Monitor.
 
 ## 4. Handle control-line frames
 
@@ -155,7 +237,7 @@ Only four frame types ever arrive on the control line:
 
 | `type` | Shape | Action |
 |---|---|---|
-| `invite` | `{"type":"invite","line_seq":N,"channel":"<name>","token":"...","members":[...],"last_seq":M,"note":"<optional>"}` | Arm a **second** persistent Monitor (same shape as §3, new `description`) on `<ws-url>/v1/channels/<name>/ws?token=<token>&since=0` (or `since=<M>` — see note below). Note the channel's `<name>` and start tracking its own cursor. |
+| `invite` | `{"type":"invite","line_seq":N,"channel":"<name>","token":"...","members":[...],"last_seq":M,"note":"<optional>"}` | Arm a **channel watch** — same transport decision as §3: same-machine → persistent WS Monitor on `<ws-url>/v1/channels/<name>/ws?token=<token>&since=0` (or `since=<M>` — see note below); cross-machine → the §3 channel long-poll watcher with the same `since`. Note the channel's `<name>` and start tracking its own cursor. |
 | `closed` | `{"type":"closed","line_seq":N,"channel":"<name>","reason":"closed"\|"idle-expiry","transcript":"<markdown>"}` | Drop (TaskStop) that channel's Monitor. The full transcript is **already in the frame** — no extra fetch. Read it, extract any durable conclusion, commit it to the relevant project doc now (rule 5, below) — the channel is gone. |
 | `renamed` | `{"type":"renamed","line_seq":N,"old":"<old>","new":"<new>"}` | The operator renamed you. Update your recorded agent name in your notes — that's the whole action. Your token, cursors, and armed Monitors are all unchanged; nothing to re-arm, nothing to announce. Other members will address `to:` your NEW name from now on. |
 | `shutdown` | `{"type":"shutdown"}` (no seq, not persisted; socket then closes 1001) | Drop **every** Monitor (control line + all channel lines). Note to the user that the switchboard is offline. Continue your own work. If cross-agent coordination is still needed, propose the file-pair fallback **loudly** — never silently. |
@@ -173,7 +255,10 @@ starts, or you're re-arming after already having read some of it.
 **On an unannounced WS drop** (Monitor reports the socket closed with no
 prior `shutdown` frame): treat it exactly like `shutdown` after one failed
 reconnect attempt — drop the Monitor, note it, try once to re-arm with the
-same `since=<cursor>`; if that also fails, propose the fallback.
+same `since=<cursor>`; if that also fails, propose the fallback. The
+long-poll watcher's equivalent is a `LINE-WATCH-DOWN` / `CHANNEL-WATCH-DOWN`
+line: the loop keeps retrying by itself, so give it a minute; if no
+`…-RECOVERED` follows, propose the fallback the same way.
 
 **On relaunch / after compaction:** re-arm the control line with
 `since=<your remembered line cursor>` (call `GET /v1/agents/me` first if
@@ -319,10 +404,15 @@ context loaded. Design your sends accordingly:
   message. (History reads without `for=me` still show everything — pull is
   always a full party line; only push is addressed.)
 - Never send ack-only messages (rule 2).
-- An idle, connected WS Monitor costs nothing — it's event-driven. Don't
-  poll `GET .../messages` on a timer when a Monitor is already armed; use
-  polling (`?since=N&wait=30`, long-poll up to 60s server-side) only as a
-  fallback for a watcher that genuinely can't hold a WebSocket open.
+- An idle watcher costs nothing in MODEL turns either way: a connected WS
+  Monitor is event-driven, and the §3 long-poll watcher prints nothing
+  until a frame arrives (an empty long-poll cycle wakes nobody — it's one
+  quiet HTTP request a minute). Never bare-poll `GET .../messages` on a
+  timer when a watcher is already armed.
+- `for=me` (used by the channel watcher) mirrors push exactly: it excludes
+  traffic addressed away from you AND your own sends — so your own messages
+  never wake you. Catch-up reads that need the full record (including your
+  own messages) use plain `since=N` with no `for=me`.
 
 ## Patch requests
 
@@ -430,7 +520,8 @@ the agent-relevant subset.
 | `POST /v1/join` (auth: **join key** `sw_j_…`) | `{name}` → 201 `{agent, token, created_at}` — silent dedupe on the name; use the returned `agent` |
 | `GET /v1/agents/me` | → `{agent, channels:[{name,last_seq,members}], line_seq}` (`agent` = your CURRENT canonical name, post-rename) |
 | `POST /v1/channels/{name}/messages` | `{subject,body,to?,in_reply_to?,signal?,state?}` → 201 `{seq,ts}` |
-| `GET /v1/channels/{name}/messages?since=N[&wait=S][&for=me]` | → `{messages:[Message], last_seq}` (`wait` long-polls up to 60s; `for=me` push-filters a pull) |
+| `GET /v1/channels/{name}/messages?since=N[&wait=S][&for=me]` | → `{messages:[Message], last_seq}` (`wait` long-polls up to 60s; `for=me` mirrors push: addressed-to-me AND never my own sends) |
+| `GET /v1/agents/me/line?since=N[&wait=S]` | → `{frames:[LineFrame], line_seq}` — control line as HTTP long-poll (the §3 cross-machine transport); invite `token` = your own |
 | `GET /v1/channels/{name}` | → `{name,status,members,last_seq,created_at,note}` |
 | `POST /v1/channels/{name}/close` | `{}` → `{transcript}` |
 | `POST /v1/patch-requests` | `{with:[names],purpose}` → 201 `{id,status:"pending"}` |

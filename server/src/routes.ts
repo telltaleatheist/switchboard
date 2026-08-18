@@ -17,7 +17,7 @@ import {
 import { requireAgent, requireJoinKey, requireOperator, type Principal } from './auth';
 import { badRequest, conflict, forbidden, notFound } from './errors';
 import { closeChannel, emitLineEvent, purgeOlderThan, sendInvitations } from './lifecycle';
-import { Hub } from './hub';
+import { Hub, injectToken } from './hub';
 import type { Req, Result, Route } from './router';
 import type { AgentRow, ChannelRow } from './store';
 import { hashToken, mintAgentToken } from './tokens';
@@ -130,6 +130,40 @@ const getAgentsMe = (ctx: Ctx, req: Req): Result => {
   };
 };
 
+/**
+ * HTTP long-poll mirror of the control-line WebSocket, for agents whose
+ * harness cannot open a WS to this host at all: the Monitor tool refuses
+ * private-range addresses (RFC1918, CGNAT, link-local) outright — literal IP
+ * or hostname makes no difference — so a cross-machine agent on a home LAN
+ * can never arm the socket. Same frames, same cursor semantics, pull instead
+ * of push. Invite frames get the caller's own token injected exactly as the
+ * WS path does.
+ */
+const getLineEvents = async (ctx: Ctx, req: Req): Promise<Result> => {
+  assertNoUnknownQuery(req.query, ['since', 'wait']);
+  if (req.principal.kind !== 'agent') {
+    throw forbidden('the control line requires an agent token');
+  }
+  const agent = req.principal.agent;
+  const token = req.principal.token;
+  const since = queryInt(req.query, 'since', 0);
+
+  const waitRaw = req.query.get('wait');
+  const wait = waitRaw === null ? 0 : queryInt(req.query, 'wait', 0);
+  if (wait > MAX_WAIT_SECONDS) throw badRequest(`query parameter 'wait' must be <= ${MAX_WAIT_SECONDS} seconds`);
+
+  let frames = ctx.store.lineEventsSince(agent.id, since);
+  if (frames.length === 0 && wait > 0) {
+    await ctx.hub.waitForLineNews(agent.id, wait * 1000);
+    frames = ctx.store.lineEventsSince(agent.id, since);
+  }
+  const fresh = ctx.store.getAgentById(agent.id);
+  return {
+    status: 200,
+    body: { frames: frames.map((f) => injectToken(f, token)), line_seq: fresh.line_seq },
+  };
+};
+
 const postMessage = (ctx: Ctx, req: Req): Result => {
   assertNoUnknownQuery(req.query, []);
   if (req.principal.kind !== 'agent') {
@@ -228,7 +262,11 @@ const getMessages = async (ctx: Ctx, req: Req): Promise<Result> => {
     messages = ctx.store.messagesSince(channel.id, since);
   }
   if (filterName !== null) {
-    messages = messages.filter((m) => Hub.addressedTo(m.to, filterName));
+    // `for=me` means "exactly what push would have delivered": addressed to
+    // this agent (or everyone), and never its own messages — the sender is
+    // excluded from live push, so its long-poll mirror excludes it too. A
+    // plain pull without for=me stays the full party line.
+    messages = messages.filter((m) => m.sender !== filterName && Hub.addressedTo(m.to, filterName));
   }
   const fresh = ctx.store.getChannelById(channel.id);
   return { status: 200, body: { messages, last_seq: fresh.last_seq } };
@@ -476,6 +514,10 @@ export const ROUTES: readonly Route[] = [
   { method: 'POST', pattern: '/v1/join', auth: 'none', handler: postJoin },
 
   { method: 'GET', pattern: '/v1/agents/me', auth: 'agent', handler: getAgentsMe },
+  // REST twin of the control-line WS: upgrades are intercepted on the HTTP
+  // server's 'upgrade' event and never reach this router, so the same path
+  // serves both without conflict.
+  { method: 'GET', pattern: '/v1/agents/me/line', auth: 'agent', handler: getLineEvents },
   { method: 'POST', pattern: '/v1/channels/{name}/messages', auth: 'agent', handler: postMessage },
   { method: 'GET', pattern: '/v1/channels/{name}/messages', auth: 'any', handler: getMessages },
   { method: 'GET', pattern: '/v1/channels/{name}', auth: 'any', handler: getChannel },

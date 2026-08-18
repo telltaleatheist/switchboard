@@ -440,14 +440,15 @@ test('push filtering: an addressed message never reaches an unaddressed member',
     );
     assert.deepEqual(history.json.messages[0].to, ['alpha']);
 
-    // ... unless it explicitly asks for the push-filtered view — which still
-    // includes beta's own message (pull is catch-up, not a wake-up).
+    // ... unless it explicitly asks for the push-filtered view, which mirrors
+    // push EXACTLY: not addressed-away messages, and never beta's own sends
+    // (the long-poll watcher must not wake an agent for its own words).
     const filtered = await call<{ messages: any[] }>(h, 'GET', '/v1/channels/filtered/messages?since=0&for=me', {
       token: betaToken,
     });
     assert.deepEqual(
       filtered.json.messages.map((m) => m.seq),
-      [broadcast.seq, fromBeta.seq],
+      [broadcast.seq],
     );
 
     const operatorFilter = await call(h, 'GET', '/v1/channels/filtered/messages?since=0&for=me', {
@@ -531,6 +532,57 @@ test('long-poll times out empty when nothing happens', async () => {
   assert.deepEqual(res.json.messages, []);
   assert.equal(res.json.last_seq, 0);
   assert.ok(elapsed >= 900, `should have waited ~1s, waited ${elapsed}ms`);
+});
+
+// ------------------------------------------------ control-line long-poll
+
+test('control line long-poll: replay with injected token, wake on invite, empty timeout', async () => {
+  // Replay: alpha's line already carries invite frames from earlier channels;
+  // read them over plain HTTP and check the token field is alpha's own.
+  const replay = await call<{ frames: any[]; line_seq: number }>(h, 'GET', '/v1/agents/me/line?since=0', {
+    token: alphaToken,
+  });
+  assert.equal(replay.status, 200);
+  assert.ok(replay.json.frames.length > 0, 'alpha should have line history by this point in the suite');
+  assert.equal(replay.json.line_seq, replay.json.frames.at(-1).line_seq);
+  for (const frame of replay.json.frames) {
+    if (frame.type === 'invite') assert.equal(frame.token, alphaToken);
+  }
+  const cursor = replay.json.line_seq;
+
+  // Wake: a pending wait resolves as soon as an invite lands on the line.
+  const started = Date.now();
+  const pending = call<{ frames: any[]; line_seq: number }>(h, 'GET', `/v1/agents/me/line?since=${cursor}&wait=30`, {
+    token: alphaToken,
+  });
+  await sleep(250);
+  await createChannel('line-longpoll', ['alpha']);
+  const woken = await pending;
+  const elapsed = Date.now() - started;
+  assert.equal(woken.status, 200);
+  assert.equal(woken.json.frames.length, 1);
+  assert.equal(woken.json.frames[0].type, 'invite');
+  assert.equal(woken.json.frames[0].channel, 'line-longpoll');
+  assert.equal(woken.json.frames[0].token, alphaToken);
+  assert.ok(elapsed < 10000, `line long-poll should return on news, took ${elapsed}ms`);
+
+  // Quiet: past the new cursor, a short wait times out empty.
+  const quietStart = Date.now();
+  const quiet = await call<{ frames: any[]; line_seq: number }>(
+    h,
+    'GET',
+    `/v1/agents/me/line?since=${woken.json.line_seq}&wait=1`,
+    { token: alphaToken },
+  );
+  assert.equal(quiet.status, 200);
+  assert.deepEqual(quiet.json.frames, []);
+  assert.ok(Date.now() - quietStart >= 900, 'should have waited ~1s');
+
+  // Guards: wait cap and agent-only auth, mirroring the channel endpoint.
+  const tooLong = await call(h, 'GET', '/v1/agents/me/line?since=0&wait=61', { token: alphaToken });
+  assert.equal(tooLong.status, 400);
+  const operator = await call(h, 'GET', '/v1/agents/me/line?since=0', { token: h.operatorToken });
+  assert.equal(operator.status, 403);
 });
 
 // ---------------------------------------------------- close + transcript

@@ -34,6 +34,8 @@ export class Hub {
   private readonly channelConns = new Set<ChannelConnection>();
   private readonly lineConns = new Set<LineConnection>();
   private readonly waiters = new Map<number, Set<Waiter>>();
+  /** Long-poll waiters on control lines, keyed by agent id (see waitForLineNews). */
+  private readonly lineWaiters = new Map<number, Set<Waiter>>();
 
   addChannelConnection(conn: ChannelConnection): void {
     this.channelConns.add(conn);
@@ -109,6 +111,7 @@ export class Hub {
       if (conn.agentId !== agentId) continue;
       send(conn.socket, JSON.stringify(injectToken(frame, conn.token)));
     }
+    releaseWaiterSet(this.lineWaiters, agentId);
   }
 
   /** Close every socket attached to a channel (used when the channel closes). */
@@ -161,6 +164,7 @@ export class Hub {
     this.channelConns.clear();
     this.lineConns.clear();
     for (const channelId of [...this.waiters.keys()]) this.releaseWaiters(channelId);
+    for (const agentId of [...this.lineWaiters.keys()]) releaseWaiterSet(this.lineWaiters, agentId);
   }
 
   // ------------------------------------------------------------ long-poll
@@ -170,32 +174,50 @@ export class Hub {
    * woken by news, false on timeout.
    */
   waitForChannelNews(channelId: number, timeoutMs: number): Promise<boolean> {
-    return new Promise<boolean>((resolve) => {
-      let set = this.waiters.get(channelId);
-      if (!set) {
-        set = new Set<Waiter>();
-        this.waiters.set(channelId, set);
-      }
-      const waiter: Waiter = {
-        resolve: () => resolve(true),
-        timer: setTimeout(() => {
-          set?.delete(waiter);
-          resolve(false);
-        }, timeoutMs),
-      };
-      waiter.timer.unref();
-      set.add(waiter);
-    });
+    return addWaiter(this.waiters, channelId, timeoutMs);
+  }
+
+  /**
+   * Resolve when the agent's control line gets a new persisted frame, or
+   * after timeoutMs — the long-poll half of `GET /v1/agents/me/line`, for
+   * clients whose harness can't open a WebSocket to this host (the Monitor
+   * tool refuses private-range addresses; only loopback is allowed).
+   */
+  waitForLineNews(agentId: number, timeoutMs: number): Promise<boolean> {
+    return addWaiter(this.lineWaiters, agentId, timeoutMs);
   }
 
   private releaseWaiters(channelId: number): void {
-    const set = this.waiters.get(channelId);
-    if (!set) return;
-    this.waiters.delete(channelId);
-    for (const waiter of set) {
-      clearTimeout(waiter.timer);
-      waiter.resolve();
+    releaseWaiterSet(this.waiters, channelId);
+  }
+}
+
+function addWaiter(map: Map<number, Set<Waiter>>, key: number, timeoutMs: number): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    let set = map.get(key);
+    if (!set) {
+      set = new Set<Waiter>();
+      map.set(key, set);
     }
+    const waiter: Waiter = {
+      resolve: () => resolve(true),
+      timer: setTimeout(() => {
+        set?.delete(waiter);
+        resolve(false);
+      }, timeoutMs),
+    };
+    waiter.timer.unref();
+    set.add(waiter);
+  });
+}
+
+function releaseWaiterSet(map: Map<number, Set<Waiter>>, key: number): void {
+  const set = map.get(key);
+  if (!set) return;
+  map.delete(key);
+  for (const waiter of set) {
+    clearTimeout(waiter.timer);
+    waiter.resolve();
   }
 }
 

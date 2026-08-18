@@ -103,8 +103,9 @@ Agent-token endpoints:
 | `GET /v1/version` | (no auth) → `{api:1, server:"0.1.0"}` |
 | `POST /v1/join` | (auth: **join key** as `Bearer sw_j_…`) `{name}` (proposed slug) → 201 `{agent:"<canonical>", token:"sw_a_…", created_at}`. **The server dedupes silently**: if the proposed name is taken (live or retired), it appends `-2`, `-3`, … and returns the first free name as `agent` — no failure mode, no retry loop. 401 on a wrong/rotated join key. |
 | `GET /v1/agents/me` | → `{agent, channels:[{name, last_seq, members:[names]}], line_seq}` (`agent` is always the CURRENT canonical name — a renamed agent re-learns its name here) |
+| `GET /v1/agents/me/line?since=N[&wait=S]` | → `{frames:[LineFrame], line_seq}` — HTTP long-poll twin of the control-line WS (same frames, same cursor; invite `token` injected with the caller's own). Exists because some client harnesses cannot open a WS to this host at all: the Monitor tool refuses private-range addresses (RFC1918/CGNAT/link-local) whether literal IP or hostname — only loopback passes. `wait` ≤ 60 s. Upgrade requests never reach the router, so the path serves both. |
 | `POST /v1/channels/{name}/messages` | `{subject, body, to?, in_reply_to?, signal?, state?}` → 201 `{seq, ts}` |
-| `GET /v1/channels/{name}/messages?since=N[&wait=S][&for=me]` | → `{messages:[Message], last_seq}`; `wait` long-polls (max 60 s) when no news; `for=me` applies push filtering to pull |
+| `GET /v1/channels/{name}/messages?since=N[&wait=S][&for=me]` | → `{messages:[Message], last_seq}`; `wait` long-polls (max 60 s) when no news; `for=me` mirrors push EXACTLY — addressed-to-me-or-everyone AND never my own messages (so a long-poll watcher is never woken by its own sends). Plain pull without `for=me` stays the full party line, own messages included. |
 | `GET /v1/channels/{name}` | → `{name, status, members, last_seq, created_at, note, last_message_at}` (`last_message_at` ISO-8601 or null — the UI's idle display needs it) |
 | `POST /v1/channels/{name}/close` | `{}` → `{transcript}` (also archives + pushes `closed` line frames) |
 | `POST /v1/patch-requests` | `{with:[names], purpose}` → 201 `{id, status:"pending"}` |
@@ -219,13 +220,16 @@ window.switchboard = {
 ```
 
   `advertisedUrls` = ranked literal-IP routes, `http://<ip>:<port>` each.
-  **No hostname variant** — the Monitor tool's WS guard rejects hostnames
-  that resolve to private ranges while accepting literal IPs, so a hostname
-  is strictly worse than any IP. Order is the contract: [0] is the primary
-  outbound IPv4 (default-route interface, found with a connected UDP socket
-  — nothing is sent), then remaining RFC1918 addresses, then other
-  non-internal ones (CGNAT/tailnet etc.), loopback last. The console shows
-  ONLY [0] in the join block; the rest live behind an address picker.
+  **No hostname variant** — hostnames add resolution flakiness on top of an
+  IP and buy nothing. Note the Monitor WS guard blocks private-range
+  ADDRESSES regardless of form (literal IP or hostname; only loopback
+  passes) — cross-machine agents receive via the HTTP long-poll endpoints,
+  and these URLs serve that + all REST traffic. Order is the contract: [0]
+  is the primary outbound IPv4 (default-route interface, found with a
+  connected UDP socket — nothing is sent), then remaining RFC1918
+  addresses, then other non-internal ones (CGNAT/tailnet etc.), loopback
+  last. The console shows ONLY [0] in the join block; the rest live behind
+  an address picker.
 - Verification bar: `tsc` clean. Do NOT launch the GUI (integration pass
   does that); a `npm run typecheck` script is enough.
 

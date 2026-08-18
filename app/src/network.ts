@@ -3,10 +3,11 @@ import * as os from 'node:os';
 
 /**
  * Builds the ranked list of URLs agents can use to reach this switchboard,
- * each rendered as `http://<ip>:<port>`. LITERAL IPs ONLY — the Monitor
- * tool's WS guard rejects hostnames that resolve to link-local or private
- * ranges (DNS-rebinding protection) while accepting literal IPs, so a
- * hostname variant is strictly worse than any IP variant and is not offered.
+ * each rendered as `http://<ip>:<port>`. LITERAL IPs ONLY — hostnames
+ * resolve unreliably across OSes and buy nothing over an IP. (The Monitor
+ * tool's WS guard blocks private-range ADDRESSES in either form, loopback
+ * excepted; cross-machine agents receive over the HTTP long-poll
+ * endpoints, which these URLs serve along with all REST traffic.)
  *
  * Ordering contract (ARCHITECTURE.md app/): the FIRST entry is the one the
  * console shows in the join block; the rest are alternates behind a picker.
