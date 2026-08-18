@@ -2,6 +2,7 @@ import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiError, ApiService } from '../../core/api.service';
 import type { AgentSummary, ChannelSummary } from '../../core/api.models';
+import { ConfirmService } from '../../core/confirm.service';
 import { startPolling } from '../../core/polling';
 import { RelativeTimePipe } from '../../shared/relative-time.pipe';
 
@@ -19,6 +20,7 @@ interface ActivityCacheEntry {
 })
 export class ChannelsPage implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
+  private readonly confirmService = inject(ConfirmService);
 
   protected readonly channels = signal<ChannelSummary[]>([]);
   protected readonly agents = signal<AgentSummary[]>([]);
@@ -125,9 +127,13 @@ export class ChannelsPage implements OnInit, OnDestroy {
   }
 
   protected async closeChannel(name: string): Promise<void> {
-    if (!confirm(`Close channel "${name}"? This archives it and ends the conversation.`)) {
-      return;
-    }
+    const ok = await this.confirmService.ask({
+      title: `Close channel "${name}"?`,
+      message: 'This archives it and ends the conversation.',
+      confirmLabel: 'Close channel',
+      danger: true,
+    });
+    if (!ok) return;
     this.closingName.set(name);
     try {
       await this.api.closeChannel(name);

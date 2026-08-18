@@ -2,6 +2,7 @@ import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiError, ApiService } from '../../core/api.service';
 import type { ArchiveDetail, ArchiveSummary } from '../../core/api.models';
+import { ConfirmService } from '../../core/confirm.service';
 import { startPolling } from '../../core/polling';
 import { RelativeTimePipe } from '../../shared/relative-time.pipe';
 
@@ -13,6 +14,7 @@ import { RelativeTimePipe } from '../../shared/relative-time.pipe';
 })
 export class ArchivesPage implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
+  private readonly confirmService = inject(ConfirmService);
 
   protected readonly archives = signal<ArchiveSummary[]>([]);
   protected readonly loading = signal(true);
@@ -82,13 +84,15 @@ export class ArchivesPage implements OnInit, OnDestroy {
   protected async purge(): Promise<void> {
     const days = this.purgeDays();
     if (!Number.isFinite(days) || days < 0) return;
-    if (
-      !confirm(
-        `Permanently delete archives (and their messages) for channels closed more than ${days} day(s) ago? This cannot be undone.`,
-      )
-    ) {
-      return;
-    }
+    const ok = await this.confirmService.ask({
+      title: 'Purge old archives?',
+      message:
+        `Permanently delete archives (and their messages) for channels closed more than ${days} day(s) ago. ` +
+        `This cannot be undone.`,
+      confirmLabel: 'Purge',
+      danger: true,
+    });
+    if (!ok) return;
     this.purging.set(true);
     this.purgeError.set(null);
     this.purgeResult.set(null);

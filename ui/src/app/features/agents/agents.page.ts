@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { ApiError, ApiService } from '../../core/api.service';
 import type { AgentSummary } from '../../core/api.models';
 import { ConfigService } from '../../core/config.service';
+import { ConfirmService } from '../../core/confirm.service';
 import { startPolling } from '../../core/polling';
 import { BootstrapBlock } from '../../shared/bootstrap-block/bootstrap-block';
 import { RelativeTimePipe } from '../../shared/relative-time.pipe';
@@ -22,6 +23,7 @@ interface IssuedToken {
 export class AgentsPage implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
   private readonly configService = inject(ConfigService);
+  private readonly confirmService = inject(ConfirmService);
 
   protected readonly agents = signal<AgentSummary[]>([]);
   protected readonly loading = signal(true);
@@ -81,15 +83,16 @@ export class AgentsPage implements OnInit, OnDestroy {
   }
 
   protected async deleteAgent(name: string): Promise<void> {
-    if (
-      !confirm(
-        `Delete agent "${name}"? Its token stops working immediately. ` +
-          `If it never sent a message the name is freed; otherwise the name stays retired so history keeps its attribution. ` +
-          `Agents in open channels can't be deleted — close their channels first.`,
-      )
-    ) {
-      return;
-    }
+    const ok = await this.confirmService.ask({
+      title: `Delete agent "${name}"?`,
+      message:
+        `Its token stops working immediately.\n\n` +
+        `If it never sent a message the name is freed; otherwise the name stays retired so history keeps its attribution. ` +
+        `Agents in open channels can't be deleted — close their channels first.`,
+      confirmLabel: 'Delete agent',
+      danger: true,
+    });
+    if (!ok) return;
     this.deletingName.set(name);
     try {
       await this.api.deleteAgent(name);
@@ -102,9 +105,12 @@ export class AgentsPage implements OnInit, OnDestroy {
   }
 
   protected async reissue(name: string): Promise<void> {
-    if (!confirm(`Reissue the token for "${name}"? The old token stops working immediately.`)) {
-      return;
-    }
+    const ok = await this.confirmService.ask({
+      title: `Reissue token for "${name}"?`,
+      message: 'The old token stops working immediately.',
+      confirmLabel: 'Reissue token',
+    });
+    if (!ok) return;
     this.reissuingName.set(name);
     try {
       const res = await this.api.reissueAgentToken(name);

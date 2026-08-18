@@ -1,0 +1,27 @@
+@if (confirm.request(); as q) {
+  <div class="scrim" (click)="confirm.answer(false)"></div>
+
+  <div
+    class="dialog card"
+    role="alertdialog"
+    aria-modal="true"
+    [attr.aria-label]="q.title"
+    tabindex="-1"
+    (keydown.escape)="confirm.answer(false)"
+  >
+    <h2>{{ q.title }}</h2>
+    <p class="message">{{ q.message }}</p>
+    <div class="actions">
+      <button #cancelBtn type="button" class="ghost" (click)="confirm.answer(false)">
+        {{ q.cancelLabel }}
+      </button>
+      <button
+        type="button"
+        [class]="q.danger ? 'danger' : 'primary'"
+        (click)="confirm.answer(true)"
+      >
+        {{ q.confirmLabel }}
+      </button>
+    </div>
+  </div>
+}

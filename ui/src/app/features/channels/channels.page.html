@@ -22,7 +22,7 @@
         } @else {
           <div class="member-picker">
             @for (agent of agents(); track agent.name) {
-              <label class="member-option">
+              <label class="member-option" [class.selected]="selectedMembers().has(agent.name)">
                 <input
                   type="checkbox"
                   [checked]="selectedMembers().has(agent.name)"
@@ -87,7 +87,7 @@
             <tr>
               <td class="mono">{{ ch.name }}</td>
               <td>
-                <span class="row wrap">
+                <span class="member-list">
                   @for (m of ch.members; track m) {
                     <span class="badge">{{ m }}</span>
                   }
