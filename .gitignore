@@ -1,0 +1,24 @@
+# Dependencies / build output
+node_modules/
+dist/
+out/
+.angular/
+*.tsbuildinfo
+
+# Runtime data — never commit a live switchboard's state
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+
+# Local tooling / secrets — nothing sensitive reaches the repo
+.claude/settings.local.json
+.env
+.env.*
+*.pem
+*.key
+
+# OS noise
+.DS_Store
+Thumbs.db
