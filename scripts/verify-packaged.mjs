@@ -11,9 +11,9 @@
  *
  * Usage:
  *   node scripts/verify-packaged.mjs [--app-dir <dir>] [--exe <path>] [--server <path>]
- * Defaults to release/win-unpacked (Windows). On macOS point --app-dir at
- * `release/mac-arm64/Switchboard.app/Contents` (exe: MacOS/Switchboard,
- * server: Resources/server/dist/index.js) or pass --exe/--server directly.
+ * Defaults: release/win-unpacked on Windows; the first existing
+ * release/mac-*/Switchboard.app/Contents on macOS. Pass --app-dir (or
+ * --exe/--server) to override.
  */
 
 import { spawn, spawnSync } from 'node:child_process';
@@ -47,7 +47,19 @@ function parseArgs(argv) {
 }
 
 const args = parseArgs(process.argv.slice(2));
-const appDir = path.resolve(ROOT, args.appDir ?? path.join('release', 'win-unpacked'));
+
+/** Platform-correct default output dir; --app-dir always wins. */
+function defaultAppDir() {
+  if (process.platform !== 'darwin') return path.join('release', 'win-unpacked');
+  // electron-builder names the dir by arch (mac-arm64 / mac); take whichever exists.
+  for (const dir of ['mac-arm64', 'mac', 'mac-x64']) {
+    const candidate = path.join('release', dir, 'Switchboard.app', 'Contents');
+    if (fs.existsSync(path.resolve(ROOT, candidate))) return candidate;
+  }
+  fail('no packaged .app found under release/ — run npm run package:mac first, or pass --app-dir');
+}
+
+const appDir = path.resolve(ROOT, args.appDir ?? defaultAppDir());
 const exePath = path.resolve(
   appDir,
   args.exe ?? (process.platform === 'darwin' ? 'MacOS/Switchboard' : 'Switchboard.exe')
