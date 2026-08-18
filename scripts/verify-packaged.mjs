@@ -12,8 +12,8 @@
  * Usage:
  *   node scripts/verify-packaged.mjs [--app-dir <dir>] [--exe <path>] [--server <path>]
  * Defaults: release/win-unpacked on Windows; the first existing
- * release/mac-*/Switchboard.app/Contents on macOS. Pass --app-dir (or
- * --exe/--server) to override.
+ * release/mac-<arch>/Switchboard.app/Contents on macOS. Pass --app-dir
+ * (or --exe/--server) to override.
  */
 
 import { spawn, spawnSync } from 'node:child_process';
