@@ -93,11 +93,12 @@
         <div class="compose-row">
           <textarea
             rows="2"
-            placeholder="Message as operator — first line becomes the subject (Ctrl+Enter to send)"
+            placeholder="Message as operator — first line becomes the subject (Enter to send, Shift+Enter for a new line)"
             [ngModel]="composeText()"
             (ngModelChange)="composeText.set($event)"
             name="composeText"
             [disabled]="sending()"
+            (keydown.enter)="onEnter($event)"
             (keydown.control.enter)="sendMessage()"
           ></textarea>
           <button type="submit" class="primary" [disabled]="sending() || !composeText().trim()">
