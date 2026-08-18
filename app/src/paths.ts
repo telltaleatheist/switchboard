@@ -1,25 +1,46 @@
 import * as path from 'node:path';
+import { app } from 'electron';
 
 /**
- * Absolute path to the switchboard monorepo root (the parent of app/,
- * server/, and ui/).
+ * Absolute path to the tree that holds `app/`, `server/` and `ui/`.
  *
  * Resolved relative to *this compiled file's* location
- * (app/dist/paths.js -> app/dist -> app -> repo root), not via Electron's
- * `app.getAppPath()`. That keeps path resolution correct regardless of
- * Electron bootstrap timing and gives packaged mode one obvious place to
- * diverge later (see the TODO in server-manager.ts).
+ * (app/dist/paths.js -> app/dist -> app -> root), not via Electron's
+ * `app.getAppPath()`, so path resolution is correct regardless of Electron
+ * bootstrap timing.
+ *
+ * In a packaged build this deliberately still works: electron-builder ships
+ * `app/dist/**` and `ui/dist/ui/browser/**` inside the asar with the same
+ * relative layout as the repo, so this returns the asar root
+ * (`…/resources/app.asar`). Only the *server* diverges — its code and
+ * node_modules must live outside the asar (native `.node` files cannot be
+ * loaded from an asar archive), so `serverEntryPath()` branches below.
  */
 export function repoRoot(): string {
   return path.resolve(__dirname, '..', '..');
 }
 
-/** Dev-mode contract: `node <this> --port ... --host ... --data-dir ...`. */
+/**
+ * The server entry, launched per the CLI contract:
+ * `<node-ish> <this> --port ... --host ... --data-dir ...`.
+ *
+ * - Dev: `<repo>/server/dist/index.js`.
+ * - Packaged: `<resources>/server/dist/index.js`, staged by
+ *   scripts/prepare-server-runtime.js and copied there by electron-builder's
+ *   `extraResources` (see electron-builder.yml). Its sibling `node_modules/`
+ *   is what the server's own `require` resolves against.
+ */
 export function serverEntryPath(): string {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'server', 'dist', 'index.js');
+  }
   return path.join(repoRoot(), 'server', 'dist', 'index.js');
 }
 
-/** The built Angular operator console's entry HTML file. */
+/**
+ * The built Angular operator console's entry HTML file. Identical relative
+ * path in both modes (dev: on disk; packaged: inside the asar).
+ */
 export function uiIndexPath(): string {
   return path.join(repoRoot(), 'ui', 'dist', 'ui', 'browser', 'index.html');
 }

@@ -148,6 +148,7 @@ async function main(): Promise<void> {
 
   serverManager = new ServerManager({
     serverEntryPath: serverEntryPath(),
+    packaged: app.isPackaged,
     port: SERVER_PORT,
     host: SERVER_HOST,
     dataDir,

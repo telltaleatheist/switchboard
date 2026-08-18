@@ -1,0 +1,74 @@
+# electron-builder configuration for Switchboard.
+#
+# Driven from the repo root: `npm run package:win-x64` / `npm run package:mac`.
+# Both scripts run `npm run build` and `scripts/prepare-server-runtime.js`
+# first; this file only describes what goes where.
+#
+# Layout produced (Windows dir target shown; mac is the same inside the .app):
+#
+#   Switchboard.exe                       <- Electron, also the server's "node"
+#   resources/app.asar
+#     app/dist/**                         <- Electron main + preload
+#     ui/dist/ui/browser/**               <- Angular console (asar is fine)
+#     package.json                        <- "main": app/dist/main.js
+#   resources/server/                     <- extraResources, OUTSIDE the asar
+#     dist/**                             <- server/dist, unchanged
+#     node_modules/**                     <- better-sqlite3 + ws, built for
+#                                            Electron's Node ABI
+#
+# The server lives outside the asar because native .node files cannot be
+# loaded from an asar archive; app/src/paths.ts resolves it via
+# process.resourcesPath when app.isPackaged.
+
+appId: com.switchboard.app
+productName: Switchboard
+copyright: Copyright © 2026 Owen Morgan
+
+directories:
+  # The repo root IS the app package (its package.json carries "main":
+  # app/dist/main.js). Without this, electron-builder auto-detects the `app/`
+  # sub-directory as the app package and packs the wrong tree.
+  app: .
+  output: release
+  buildResources: build-resources
+
+# The asar payload. Paths are relative to the project root, which is also the
+# app directory (the root package.json is the app's package.json).
+files:
+  - package.json
+  - app/dist/**/*
+  - ui/dist/ui/browser/**/*
+
+extraResources:
+  - from: staging/server-runtime
+    to: server
+  # Separate entry on purpose: electron-builder's file copier skips any
+  # directory *named* node_modules while walking a source tree, so the
+  # server's dependencies have to be handed to it as their own root.
+  - from: staging/server-runtime/node_modules
+    to: server/node_modules
+
+asar: true
+
+# Nothing native is a dependency of the *app* package: the only native module
+# (better-sqlite3) belongs to the server runtime, which is staged and rebuilt
+# for Electron's ABI by scripts/prepare-server-runtime.js before packaging.
+npmRebuild: false
+
+win:
+  # Simplest useful artifact for v1: an unpacked, runnable directory.
+  target:
+    - target: dir
+      arch:
+        - x64
+
+mac:
+  # Host architecture only, deliberately: the staged server carries ONE
+  # compiled better-sqlite3 binary (built for the machine doing the packaging),
+  # so a universal/cross-arch dmg would ship a native module for the wrong
+  # arch. Build the arm64 dmg on an arm64 Mac, the x64 dmg on an x64 Mac.
+  target:
+    - dmg
+  category: public.app-category.developer-tools
+  # No code signing / notarization in v1.
+  identity: null

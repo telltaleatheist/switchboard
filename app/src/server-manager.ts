@@ -4,6 +4,12 @@ import * as readline from 'node:readline';
 export interface ServerManagerOptions {
   /** Absolute path to server/dist/index.js. */
   serverEntryPath: string;
+  /**
+   * `app.isPackaged`. Passed in rather than read from Electron so this module
+   * stays Electron-free (and unit-testable): it only changes *how* the child
+   * is launched, never what it is.
+   */
+  packaged: boolean;
   port: number;
   host: string;
   dataDir: string;
@@ -63,28 +69,37 @@ function tryParseReadyLine(line: string): ServerReadyInfo | null {
   return null;
 }
 
+interface ServerLauncher {
+  /** Executable to spawn. */
+  command: string;
+  /** Environment for the child; undefined means "inherit this process's". */
+  env: NodeJS.ProcessEnv | undefined;
+}
+
 /**
- * TODO(packaged-mode seam): dev mode shells out to a `node` binary on PATH,
- * matching the CLI contract in ARCHITECTURE.md exactly:
- *   node server/dist/index.js --port 4400 --host 0.0.0.0 --data-dir <dir>
+ * How the server child is launched, in both modes. The argv is identical
+ * either way — the CLI contract in ARCHITECTURE.md never changes:
+ *   <node-ish> server/dist/index.js --port P --host H --data-dir D
  *
- * A packaged build cannot assume a system `node` exists. When packaging is
- * built out (ARCHITECTURE.md calls this "a later pass"), replace this
- * function's packaged-mode branch with an `ELECTRON_RUN_AS_NODE` fork of the
- * Electron binary itself instead of an external `node`:
+ * - **Dev**: a `node` binary on PATH (the developer's Node 20).
+ * - **Packaged**: there is no system `node` to assume, so the Electron binary
+ *   is re-executed as plain Node via ELECTRON_RUN_AS_NODE=1 — no Chromium, no
+ *   window, just Node with Electron's own V8/Node build.
+ *   https://www.electronjs.org/docs/latest/api/environment-variables#electron_run_as_node
  *
- *   spawn(process.execPath, [serverEntryPath, ...args], {
- *     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
- *     stdio: ['pipe', 'pipe', 'pipe'],
- *   });
- *
- * See: https://www.electronjs.org/docs/latest/api/environment-variables#electron_run_as_node
- * That also needs server/dist bundled outside the asar (native deps like
- * better-sqlite3 can't load from inside an asar archive) — left for the
- * packaging pass, not decided here.
+ * The packaged server code and its node_modules ship as extraResources
+ * (resources/server/, OUTSIDE the asar) because native `.node` files cannot be
+ * loaded from an asar archive, and better-sqlite3 there is compiled against
+ * Electron's Node ABI — see scripts/prepare-server-runtime.js.
  */
-function resolveNodeExecutable(): string {
-  return 'node';
+function resolveServerLauncher(packaged: boolean): ServerLauncher {
+  if (packaged) {
+    return {
+      command: process.execPath,
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    };
+  }
+  return { command: 'node', env: undefined };
 }
 
 /**
@@ -124,9 +139,11 @@ export class ServerManager {
         this.opts.dataDir,
       ];
 
+      const launcher = resolveServerLauncher(this.opts.packaged);
+
       let child: ChildProcessWithoutNullStreams;
       try {
-        child = spawn(resolveNodeExecutable(), args, { windowsHide: true });
+        child = spawn(launcher.command, args, { windowsHide: true, env: launcher.env });
       } catch (err) {
         reject(new Error(`Failed to spawn switchboard server process: ${(err as Error).message}`));
         return;

@@ -5,6 +5,10 @@ out/
 .angular/
 *.tsbuildinfo
 
+# Packaging (electron-builder output + the staged server runtime it copies)
+release/
+staging/
+
 # Runtime data — never commit a live switchboard's state
 data/
 *.sqlite

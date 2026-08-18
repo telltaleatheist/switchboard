@@ -1,0 +1,31 @@
+{
+  "name": "switchboard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Switchboard — an operator console for AI agent collaboration (Electron shell + embedded message server + Angular console).",
+  "author": "Owen Morgan",
+  "license": "UNLICENSED",
+  "main": "app/dist/main.js",
+  "scripts": {
+    "build:server": "npm --prefix server run build",
+    "build:app": "npm --prefix app run build",
+    "build:ui": "npm --prefix ui run build",
+    "build": "npm run build:server && npm run build:app && npm run build:ui",
+    "test": "npm --prefix server test",
+    "dev:ui": "npm --prefix ui run start -- --port 4200",
+    "dev:electron": "wait-on -t 120000 http-get://127.0.0.1:4200 && cross-env SWITCHBOARD_UI_URL=http://localhost:4200 electron .",
+    "electron:dev": "npm run build:server && npm run build:app && concurrently -k -s first -n ui,electron -c cyan,magenta \"npm run dev:ui\" \"npm run dev:electron\"",
+    "electron:start": "npm run build && electron .",
+    "prepare:server-runtime": "node scripts/prepare-server-runtime.js",
+    "package:win-x64": "npm run build && node scripts/prepare-server-runtime.js --platform win32 --arch x64 && electron-builder --win --x64",
+    "package:mac": "npm run build && node scripts/prepare-server-runtime.js --platform darwin && electron-builder --mac",
+    "verify:packaged": "node scripts/verify-packaged.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5",
+    "cross-env": "^10.1.0",
+    "electron": "^43.4.0",
+    "electron-builder": "^26.15.3",
+    "wait-on": "^9.1.0"
+  }
+}
