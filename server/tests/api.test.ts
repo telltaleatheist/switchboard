@@ -707,12 +707,13 @@ test('every agent is handed the welcome at join and again on recovery', async ()
   const joinKey = (await call<{ join_key: string }>(h, 'GET', '/v1/join-key', { token: h.operatorToken })).json
     .join_key;
 
-  const joined = await call<{ token: string; welcome: string }>(h, 'POST', '/v1/join', {
+  const joined = await call<{ token: string; welcome: string; deduped: boolean }>(h, 'POST', '/v1/join', {
     token: joinKey,
     body: { name: 'welcomed' },
   });
   assert.equal(joined.status, 201);
   assert.match(joined.json.welcome, /collaboration, not a competition/);
+  assert.equal(joined.json.deduped, false, "a free name is not a dedupe");
 
   // /me repeats it: that is the call an agent makes after a compaction, which
   // is exactly when a once-delivered welcome would already be gone.

@@ -175,6 +175,11 @@ const postJoin = (ctx: Ctx, req: Req): Result => {
       token,
       created_at: agent.created_at,
       instance: ctx.store.getInstanceId(),
+      // True when the proposed name was taken and the server picked another.
+      // The agent already gets the canonical name back, but a flag is what
+      // makes it TELL the human — a silent -3 leaves the operator staring at
+      // three near-identical names whose numbers mean nothing.
+      deduped: agent.name !== proposed,
       // The operator's welcome: how peers here treat each other. Handed over
       // at the one moment an agent is guaranteed to read it, and repeated on
       // /v1/agents/me so a recovery after compaction gets it back.

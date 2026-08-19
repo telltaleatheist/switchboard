@@ -15,6 +15,8 @@ interface JoinResponse {
   agent: string;
   token: string;
   created_at: string;
+  /** True when the proposed name was taken and the server picked another. */
+  deduped: boolean;
 }
 
 /** Manual registration (the compat route) — used to seed fixture agents. */
@@ -105,8 +107,10 @@ test('POST /v1/join enrolls an agent that names itself', async () => {
 test('a taken name is silently deduped: alpha -> alpha-2 -> alpha-3', async () => {
   const second = await join('alpha');
   assert.equal(second.agent, 'alpha-2', 'a live name must never fail a join, only shift it');
+  assert.equal(second.deduped, true, 'the joiner is told, so it can tell its human');
   const third = await join('alpha');
   assert.equal(third.agent, 'alpha-3');
+  assert.equal(third.deduped, true);
 
   // Distinct identities, not aliases: each token resolves to its own name.
   assert.equal(await currentName(second.token), 'alpha-2');
