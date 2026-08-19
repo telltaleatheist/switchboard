@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { ConfigService } from './config.service';
 import type {
   AgentRegisterResponse,
+  BlobRef,
   AgentSummary,
   ArchiveDetail,
   ArchiveSummary,
@@ -142,12 +143,46 @@ export class ApiService {
     subject: string | null,
     body: string,
     to?: string[],
+    attachments?: string[],
   ): Promise<{ seq: number; ts: string }> {
     return this.request('POST', `/v1/channels/${encodeURIComponent(name)}/messages`, {
       ...(subject && subject.trim().length > 0 ? { subject: subject.trim() } : {}),
       body,
       ...(to && to.length > 0 ? { to } : {}),
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
     });
+  }
+
+  /** Upload attachment bytes; the returned id goes in a message's `attachments`. */
+  async uploadBlob(file: File): Promise<BlobRef> {
+    const url = `${this.baseUrl()}/v1/blobs?name=${encodeURIComponent(file.name)}`;
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.operatorToken()}`,
+          'Content-Type': file.type || 'application/octet-stream',
+        },
+        body: file,
+      });
+    } catch (err) {
+      throw new ApiError(`Could not upload the attachment (${err instanceof Error ? err.message : err}).`, 0);
+    }
+    if (!res.ok) {
+      const text = await res.text();
+      throw new ApiError(text || `Upload failed with ${res.status}.`, res.status);
+    }
+    return (await res.json()) as BlobRef;
+  }
+
+  /**
+   * A URL the browser can load directly — `<img src>` cannot set an
+   * Authorization header, so the token rides in the query string exactly as
+   * it does for WebSockets.
+   */
+  blobUrl(id: string): string {
+    return `${this.baseUrl()}/v1/blobs/${encodeURIComponent(id)}?token=${encodeURIComponent(this.operatorToken())}`;
   }
 
   getChannelMessages(name: string, since: number): Promise<MessagesPage> {

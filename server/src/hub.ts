@@ -16,6 +16,14 @@ export interface ChannelConnection {
   /** null for an operator connection (unfiltered). */
   agentId: number | null;
   agentName: string | null;
+  /**
+   * Highest seq this connection has been brought up to date on for DIGEST
+   * messages. Digests above it are owed and will ride along with the next
+   * waking frame (see broadcastMessage). Connection-local on purpose: the
+   * server keeps no per-agent read state, and this is delivery bookkeeping
+   * for one socket, not a cursor.
+   */
+  digestFloor: number;
 }
 
 export interface LineConnection {
@@ -81,6 +89,35 @@ export class Hub {
     return last !== undefined && Date.now() - last < LINE_POLL_LIVENESS_MS;
   }
 
+  /**
+   * What this agent is actually subscribed to, right now, as the server sees
+   * it — open sockets per channel, open control lines, and the last
+   * control-line long-poll. Agents cannot otherwise tell whether their
+   * Monitors died in a compaction or whether they accidentally armed the same
+   * channel twice; both failure modes are one request away from obvious here.
+   */
+  subscriptionsFor(agentId: number): {
+    line_sockets: number;
+    last_line_poll_at: string | null;
+    channels: { channel: string; sockets: number }[];
+  } {
+    let lineSockets = 0;
+    for (const c of this.lineConns) if (c.agentId === agentId) lineSockets += 1;
+    const perChannel = new Map<string, number>();
+    for (const c of this.channelConns) {
+      if (c.agentId !== agentId) continue;
+      perChannel.set(c.channelName, (perChannel.get(c.channelName) ?? 0) + 1);
+    }
+    const lastPoll = this.lastLinePoll.get(agentId);
+    return {
+      line_sockets: lineSockets,
+      last_line_poll_at: lastPoll === undefined ? null : new Date(lastPoll).toISOString(),
+      channels: [...perChannel.entries()]
+        .map(([channel, sockets]) => ({ channel, sockets }))
+        .sort((a, b) => a.channel.localeCompare(b.channel)),
+    };
+  }
+
   /** Should this recipient be woken by a message with this `to` list? */
   static addressedTo(to: string[] | null, agentName: string | null): boolean {
     if (agentName === null) return true; // operator: unfiltered
@@ -99,16 +136,47 @@ export class Hub {
    * The sender is matched by agent ID, never by name: a rename must never race
    * echo suppression (ARCHITECTURE "Rename safety").
    */
-  broadcastMessage(channelId: number, channelName: string, senderId: number, message: WireMessage): void {
+  /**
+   * Fan-out, three wake modes deep.
+   *
+   * - `wake: true` — pushed now to every addressee (minus the sender).
+   * - `wake: false` — record-only: pushed to no agent, ever.
+   * - `wake: "digest"` — HELD for agents: not pushed on its own, but flushed
+   *   ahead of the next waking frame that same connection receives. Nothing on
+   *   the record stays invisible, and nobody is interrupted for it.
+   *
+   * `held` reads the channel's messages after a seq — supplied by the caller,
+   * which owns the store. It is only consulted when there is a waking frame to
+   * attach digests to, so a quiet channel does no work.
+   *
+   * Operator sockets (agentName null) are unfiltered and see all three
+   * immediately: a human reading costs no model turns.
+   */
+  broadcastMessage(
+    channelId: number,
+    channelName: string,
+    senderId: number,
+    message: WireMessage,
+    held?: (afterSeq: number) => WireMessage[],
+  ): void {
     const frame = JSON.stringify({ type: 'message', channel: channelName, message });
     for (const conn of this.channelConns) {
       if (conn.channelId !== channelId) continue;
       if (conn.agentId !== null && conn.agentId === senderId) continue;
-      // wake:false = record-only: no agent is ever pushed it. Operator
-      // sockets (agentName null) still get it — the console watches the
-      // record, and a human reading costs no model turns.
-      if (!message.wake && conn.agentName !== null) continue;
+      const isAgent = conn.agentName !== null;
+      if (message.wake === false && isAgent) continue;
       if (!Hub.addressedTo(message.to, conn.agentName)) continue;
+      if (message.wake === 'digest' && isAgent) continue; // held, not dropped
+
+      if (isAgent && held) {
+        for (const pending of held(conn.digestFloor)) {
+          if (pending.seq >= message.seq) break;
+          if (pending.wake !== 'digest') continue;
+          if (!Hub.addressedTo(pending.to, conn.agentName)) continue;
+          send(conn.socket, JSON.stringify({ type: 'message', channel: channelName, message: pending }));
+        }
+      }
+      if (isAgent) conn.digestFloor = message.seq;
       send(conn.socket, frame);
     }
     this.releaseWaiters(channelId);

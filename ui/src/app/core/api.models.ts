@@ -72,6 +72,15 @@ export interface CloseChannelResponse {
 
 // ---- Messages ----------------------------------------------------------
 
+/** An uploaded attachment. `id` is the sha256 of the bytes. */
+export interface BlobRef {
+  id: string;
+  media_type: string;
+  bytes: number;
+  name: string | null;
+  created_at: string;
+}
+
 export interface Message {
   seq: number;
   ts: string;
@@ -82,8 +91,13 @@ export interface Message {
   body: string;
   /** Scalar when one seq is cited, array when several. */
   in_reply_to: number | number[] | null;
-  /** False = record-only: never pushed to any agent; the console still shows it. */
-  wake: boolean;
+  /**
+   * true = woke its addressees; false = record-only, pushed to nobody;
+   * "digest" = held, delivered with the addressee's next wake-up.
+   */
+  wake: boolean | 'digest';
+  /** Evidence that travelled with the message; null when there was none. */
+  attachments: BlobRef[] | null;
   signal: string | null;
   /** 'superseded' = this crossed with another message and defers to it. */
   state: 'settled' | 'withdrawn' | 'superseded' | null;

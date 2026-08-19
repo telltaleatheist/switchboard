@@ -9,7 +9,7 @@ import * as path from 'node:path';
 
 export type Db = Database.Database;
 
-export const SCHEMA_VERSION = '5';
+export const SCHEMA_VERSION = '6';
 export const DB_FILENAME = 'switchboard.db';
 export const ARCHIVE_DIRNAME = 'archives';
 
@@ -64,7 +64,8 @@ CREATE TABLE IF NOT EXISTS messages (
   body        TEXT NOT NULL,
   in_reply_to INTEGER,          -- legacy scalar: first cited seq
   reply_to_json TEXT,           -- JSON array of every cited seq, NULL = none
-  wake        INTEGER NOT NULL DEFAULT 1,  -- 0 = record-only, push nobody
+  wake        INTEGER NOT NULL DEFAULT 1,  -- 0 = record-only, 1 = wake, 2 = digest
+  attachments_json TEXT,        -- JSON array of blob ids, NULL = none
   signal      TEXT,
   state       TEXT,
   UNIQUE(channel_id, seq)
@@ -102,6 +103,17 @@ CREATE TABLE IF NOT EXISTS archives (
   closed_at    TEXT NOT NULL,
   reason       TEXT NOT NULL,
   transcript   TEXT NOT NULL
+);
+
+-- Content-addressed attachments: the bytes live in <dataDir>/blobs/<id>,
+-- this table is what the API can describe without touching the filesystem.
+-- id IS the sha256 of the bytes, so an identical upload costs nothing twice.
+CREATE TABLE IF NOT EXISTS blobs (
+  id         TEXT PRIMARY KEY,
+  media_type TEXT NOT NULL,
+  bytes      INTEGER NOT NULL,
+  name       TEXT,
+  created_at TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS messages_channel_seq ON messages(channel_id, seq);
@@ -168,6 +180,13 @@ const MIGRATIONS: Record<string, (db: Db) => string> = {
     db.exec('UPDATE messages SET reply_to_json = json_array(in_reply_to) WHERE in_reply_to IS NOT NULL');
     db.exec('ALTER TABLE messages ADD COLUMN wake INTEGER NOT NULL DEFAULT 1');
     return '5';
+  },
+  '5': (db) => {
+    // Attachments: evidence travels instead of descriptions of evidence.
+    // The blobs table is created by SCHEMA_SQL on every open, so this only
+    // has to add the message column.
+    db.exec('ALTER TABLE messages ADD COLUMN attachments_json TEXT');
+    return '6';
   },
 };
 

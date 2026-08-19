@@ -47,10 +47,28 @@ export function renderTranscript(input: TranscriptInput): string {
       lines.push(`> in reply to ${cited.map((s) => `[${s}]`).join(', ')}`);
     }
     if (m.to !== null) lines.push(`> to: ${m.to.join(', ')}`);
-    if (!m.wake) lines.push(`> record-only (woke nobody)`);
+    if (m.attachments !== null && m.attachments.length > 0) {
+      // The bytes stay in the data dir; the transcript records what travelled
+      // and how to ask for it again.
+      const listed = m.attachments
+        .map((a) => `${a.name ?? a.media_type} (${a.bytes} bytes, \`GET /v1/blobs/${a.id}\`)`)
+        .join(', ');
+      lines.push(`> attached: ${listed}`);
+    }
+    if (m.wake === false) lines.push(`> record-only (woke nobody)`);
+    if (m.wake === 'digest') lines.push(`> digest (delivered without waking)`);
     if (m.signal !== null) lines.push(`> signal: \`${m.signal}\``);
     if (m.state !== null) lines.push(`> state: ${m.state}`);
-    if (m.in_reply_to !== null || m.to !== null || !m.wake || m.signal !== null || m.state !== null) lines.push('');
+    if (
+      m.in_reply_to !== null ||
+      m.to !== null ||
+      m.wake !== true ||
+      (m.attachments !== null && m.attachments.length > 0) ||
+      m.signal !== null ||
+      m.state !== null
+    ) {
+      lines.push('');
+    }
     lines.push(m.body);
     lines.push('');
   }

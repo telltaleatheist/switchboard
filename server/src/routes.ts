@@ -12,6 +12,7 @@ import {
   MAX_PURPOSE_CHARS,
   MAX_SIGNAL_CHARS,
   MAX_SUBJECT_CHARS,
+  MAX_ATTACHMENTS,
   MAX_WAIT_SECONDS,
   MAX_WELCOME_CHARS,
   SERVER_VERSION,
@@ -22,7 +23,7 @@ import { badRequest, conflict, forbidden, notFound } from './errors';
 import { closeChannel, emitLineEvent, purgeOlderThan, sendInvitations } from './lifecycle';
 import { Hub, injectToken } from './hub';
 import type { Req, Result, Route } from './router';
-import type { AgentRow, ChannelRow } from './store';
+import type { AgentRow, ChannelRow, WakeMode } from './store';
 import { hashToken, mintAgentToken } from './tokens';
 import {
   assertNoUnknownFields,
@@ -214,6 +215,31 @@ const getAgentsMe = (ctx: Ctx, req: Req): Result => {
 };
 
 /**
+ * "What am I actually subscribed to?" — the self-diagnosis an agent cannot
+ * perform from its own side. Monitors die silently in a compaction, and a
+ * careless re-arm leaves two sockets on one channel; both show up here as a
+ * number that is wrong, instead of as archaeology through a transcript.
+ */
+const getSubscriptions = (ctx: Ctx, req: Req): Result => {
+  assertNoUnknownQuery(req.query, []);
+  const agent = requireAgent(req.principal);
+  const live = ctx.hub.subscriptionsFor(agent.id);
+  const memberOf = ctx.store.openChannelsForAgent(agent.id).map((c) => c.name);
+  return {
+    status: 200,
+    body: {
+      agent: agent.name,
+      ...live,
+      // Membership without a socket is the other half of the picture: a
+      // channel listed here but absent from `channels` above is one you are
+      // entitled to hear and are not listening to.
+      member_of: memberOf,
+      unwatched: memberOf.filter((name) => !live.channels.some((c) => c.channel === name)),
+    },
+  };
+};
+
+/**
  * HTTP long-poll mirror of the control-line WebSocket, for agents whose
  * harness cannot open a WS to this host at all: the Monitor tool refuses
  * private-range addresses (RFC1918, CGNAT, link-local) outright — literal IP
@@ -279,7 +305,16 @@ const postMessage = (ctx: Ctx, req: Req): Result => {
     }
   }
 
-  const obj = parseBody(req, ['subject', 'body', 'to', 'in_reply_to', 'wake', 'signal', 'state']);
+  const obj = parseBody(req, [
+    'subject',
+    'body',
+    'to',
+    'in_reply_to',
+    'attachments',
+    'wake',
+    'signal',
+    'state',
+  ]);
   // Agents must carry a subject — protocol rule 1 (the subject states the
   // conclusion) is what survives a truncated notification, so it is enforced
   // rather than encouraged. The OPERATOR may omit it: a human typing a quick
@@ -321,11 +356,32 @@ const postMessage = (ctx: Ctx, req: Req): Result => {
     }
   }
 
-  const wakeRaw = obj['wake'];
-  if ('wake' in obj && typeof wakeRaw !== 'boolean') {
-    throw badRequest("field 'wake' must be a boolean (false = record-only, pushed to nobody)");
+  // Attachments: ids from POST /v1/blobs. Validated here so a message can
+  // never reference evidence that is not on the server — a broken attachment
+  // in a transcript is worse than no attachment.
+  const attachments: string[] = [];
+  if ('attachments' in obj && obj['attachments'] !== null && obj['attachments'] !== undefined) {
+    const raw = obj['attachments'];
+    if (!Array.isArray(raw)) throw badRequest("field 'attachments' must be an array of blob ids");
+    if (raw.length > MAX_ATTACHMENTS) {
+      throw badRequest(`field 'attachments' holds at most ${MAX_ATTACHMENTS} ids`);
+    }
+    for (const item of raw) {
+      if (typeof item !== 'string' || !/^[0-9a-f]{64}$/.test(item)) {
+        throw badRequest("field 'attachments' must contain blob ids (64 hex chars) from POST /v1/blobs");
+      }
+      if (!ctx.store.getBlob(item)) throw badRequest(`field 'attachments' references unknown blob '${item}'`);
+      if (!attachments.includes(item)) attachments.push(item);
+    }
   }
-  const wake = wakeRaw === false ? false : true;
+
+  const wakeRaw = obj['wake'];
+  if ('wake' in obj && typeof wakeRaw !== 'boolean' && wakeRaw !== 'digest') {
+    throw badRequest(
+      "field 'wake' must be true (wake now), false (record-only, pushed to nobody) or \"digest\" (held, delivered with the addressee's next wake-up)",
+    );
+  }
+  const wake: WakeMode = wakeRaw === false ? false : wakeRaw === 'digest' ? 'digest' : true;
 
   const signal = optionalString(obj, 'signal', MAX_SIGNAL_CHARS);
   // 'superseded' is the third one the fleet asked for: 'withdrawn' means "I
@@ -343,7 +399,7 @@ const postMessage = (ctx: Ctx, req: Req): Result => {
     channel,
     sender.id,
     sender.name,
-    { to, subject, body, in_reply_to: cited, wake, signal, state },
+    { to, subject, body, in_reply_to: cited, attachments, wake, signal, state },
     idempotencyKey,
   );
 
@@ -356,10 +412,14 @@ const postMessage = (ctx: Ctx, req: Req): Result => {
     subject: subject === '' ? null : subject,
     body,
     in_reply_to: cited.length === 0 ? null : cited.length === 1 ? (cited[0] as number) : cited,
+    attachments: attachments.length === 0 ? null : ctx.store.getBlobs(attachments),
     wake,
     signal,
     state,
-  });
+  },
+  // How the hub finds digests still owed to a connection when a waking frame
+  // gives them a ride. Only called when there is such a frame.
+  (afterSeq) => ctx.store.messagesSince(channel.id, afterSeq));
 
   return { status: 201, body: stored };
 };
@@ -390,18 +450,35 @@ const getMessages = async (ctx: Ctx, req: Req): Promise<Result> => {
     await ctx.hub.waitForChannelNews(channel.id, wait * 1000);
     messages = ctx.store.messagesSince(channel.id, since);
   }
+  const fresh = ctx.store.getChannelById(channel.id);
+  let lastSeq = fresh.last_seq;
+
   if (filterName !== null) {
     // `for=me` means "exactly what push would have delivered": addressed to
     // this agent (or everyone), never its own messages, and never wake:false
     // records — those exist for the transcript and for explicit catch-up
     // reads, not for waking anybody. A plain pull without for=me stays the
     // full party line, records included.
-    messages = messages.filter(
-      (m) => m.wake && m.sender !== filterName && Hub.addressedTo(m.to, filterName),
+    const mine = messages.filter(
+      (m) => m.wake !== false && m.sender !== filterName && Hub.addressedTo(m.to, filterName),
     );
+    const wakes = mine.some((m) => m.wake === true);
+    if (wakes) {
+      // Something is waking this agent anyway, so the held digests ride along
+      // — same rule the socket follows.
+      messages = mine;
+    } else {
+      messages = [];
+      // Held digests must not be skipped: a long-poll watcher advances its
+      // cursor to the `last_seq` we report, so reporting past an undelivered
+      // digest would lose it forever. Pin the cursor just below the earliest
+      // one instead — the poll returns empty, the digest stays owed, and the
+      // next waking message delivers both.
+      const earliestHeld = mine.find((m) => m.wake === 'digest');
+      if (earliestHeld) lastSeq = Math.min(lastSeq, earliestHeld.seq - 1);
+    }
   }
-  const fresh = ctx.store.getChannelById(channel.id);
-  return { status: 200, body: { messages, last_seq: fresh.last_seq } };
+  return { status: 200, body: { messages, last_seq: lastSeq } };
 };
 
 const getChannel = (ctx: Ctx, req: Req): Result => {
@@ -788,6 +865,7 @@ export const ROUTES: readonly Route[] = [
   // server's 'upgrade' event and never reach this router, so the same path
   // serves both without conflict.
   { method: 'GET', pattern: '/v1/agents/me/line', auth: 'agent', handler: getLineEvents },
+  { method: 'GET', pattern: '/v1/agents/me/subscriptions', auth: 'agent', handler: getSubscriptions },
   // auth 'any': agents send as themselves, the operator as the reserved
   // 'operator' identity (see postMessage).
   { method: 'POST', pattern: '/v1/channels/{name}/messages', auth: 'any', handler: postMessage },

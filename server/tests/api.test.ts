@@ -264,6 +264,7 @@ test('send and read with cursors; server assigns seq, ts and sender', async () =
     body: 'first body',
     in_reply_to: null,
     wake: true,
+    attachments: null,
     signal: null,
     state: null,
   });
@@ -701,6 +702,184 @@ test('unpatching a member removes it, notifies only it, and closes its sockets',
     betaLine.close();
     betaChan.close();
   }
+});
+
+test('wake:"digest" is held, then rides along with the next waking message', async () => {
+  await createChannel('digest', ['alpha', 'beta']);
+  const betaWs = await FrameLog.open(h, `/v1/channels/digest/ws?token=${betaToken}&since=0`);
+  try {
+    // Held: delivered to nobody on its own.
+    await send(alphaToken, 'digest', { subject: 'on main now', body: 'fyi', wake: 'digest' });
+    await sleep(120);
+    assert.equal(betaWs.frames.length, 0, 'a digest must not wake anyone by itself');
+
+    // A plain wake-up flushes it first, in order, then itself.
+    await send(alphaToken, 'digest', { subject: 'need you', body: 'gate this' });
+    const first = await betaWs.next();
+    assert.equal(first.message.seq, 1, 'the held digest arrives ahead of the message that woke us');
+    assert.equal(first.message.wake, 'digest');
+    const second = await betaWs.next();
+    assert.equal(second.message.seq, 2);
+    assert.equal(second.message.wake, true);
+
+    // Already delivered: a later wake-up does not repeat it.
+    await send(alphaToken, 'digest', { subject: 'again', body: 'more' });
+    const third = await betaWs.next();
+    assert.equal(third.message.seq, 3);
+    assert.equal(betaWs.frames.length, 3, 'no re-delivery of an already-flushed digest');
+  } finally {
+    betaWs.close();
+  }
+});
+
+test('a digest-only backlog neither wakes a re-arm nor gets lost by one', async () => {
+  await createChannel('digest-replay', ['alpha', 'beta']);
+  await send(alphaToken, 'digest-replay', { subject: 'quiet note', body: 'no rush', wake: 'digest' });
+
+  // Re-arming with nothing but a digest waiting must stay silent...
+  const silent = await FrameLog.open(h, `/v1/channels/digest-replay/ws?token=${betaToken}&since=0`);
+  await sleep(120);
+  assert.equal(silent.frames.length, 0, 'reconnecting is not "waking for another reason"');
+
+  // ...and the digest must still be owed, so the next real message brings it.
+  await send(alphaToken, 'digest-replay', { subject: 'now it matters', body: 'go' });
+  const held = await silent.next();
+  assert.equal(held.message.seq, 1);
+  const waker = await silent.next();
+  assert.equal(waker.message.seq, 2);
+  silent.close();
+
+  // The long-poll twin holds its cursor below the held digest rather than
+  // reporting past it — otherwise a watcher advancing to last_seq loses it.
+  const polled = await call<{ messages: { seq: number }[]; last_seq: number }>(
+    h,
+    'GET',
+    '/v1/channels/digest-replay/messages?since=0&for=me',
+    { token: betaToken },
+  );
+  assert.equal(polled.json.messages.length, 2, 'the wake-up pulls the digest along here too');
+
+  await send(alphaToken, 'digest-replay', { subject: 'held again', body: 'later', wake: 'digest' });
+  const stuck = await call<{ messages: unknown[]; last_seq: number }>(
+    h,
+    'GET',
+    '/v1/channels/digest-replay/messages?since=2&for=me',
+    { token: betaToken },
+  );
+  assert.deepEqual(stuck.json.messages, [], 'still held');
+  assert.equal(stuck.json.last_seq, 2, 'cursor pinned below the digest, not past it');
+});
+
+test('evidence travels: attachments upload once, then ride on a message', async () => {
+  await createChannel('evidence', ['alpha', 'beta']);
+  // A 1x1 PNG stands in for the screenshot that used to reach only the human.
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64',
+  );
+  const upload = await fetch(`http://127.0.0.1:${h.port}/v1/blobs?name=crash.png`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${alphaToken}`, 'Content-Type': 'image/png' },
+    body: png,
+  });
+  assert.equal(upload.status, 201);
+  const blob = (await upload.json()) as { id: string; bytes: number; media_type: string; name: string };
+  assert.match(blob.id, /^[0-9a-f]{64}$/, 'the id is the sha256 of the bytes');
+  assert.equal(blob.bytes, png.length);
+  assert.equal(blob.name, 'crash.png');
+
+  // Content-addressed: the same bytes again are the same id, not a second copy.
+  const again = await fetch(`http://127.0.0.1:${h.port}/v1/blobs`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${alphaToken}`, 'Content-Type': 'image/png' },
+    body: png,
+  });
+  assert.equal(((await again.json()) as { id: string }).id, blob.id);
+
+  await send(alphaToken, 'evidence', {
+    subject: 'the crash, not my retelling of it',
+    body: 'screenshot attached',
+    attachments: [blob.id],
+  });
+  const pulled = await call<{ messages: { attachments: { id: string; name: string }[] | null }[] }>(
+    h,
+    'GET',
+    '/v1/channels/evidence/messages?since=0',
+    { token: betaToken },
+  );
+  assert.deepEqual(pulled.json.messages[0]?.attachments?.map((a) => a.name), ['crash.png']);
+
+  // A peer fetches the actual bytes back, byte-for-byte.
+  const fetched = await fetch(`http://127.0.0.1:${h.port}/v1/blobs/${blob.id}`, {
+    headers: { Authorization: `Bearer ${betaToken}` },
+  });
+  assert.equal(fetched.status, 200);
+  assert.equal(fetched.headers.get('content-type'), 'image/png');
+  assert.deepEqual(Buffer.from(await fetched.arrayBuffer()), png);
+
+  // ?token= works too — an <img src> in the console cannot set a header.
+  const viaQuery = await fetch(`http://127.0.0.1:${h.port}/v1/blobs/${blob.id}?token=${h.operatorToken}`);
+  assert.equal(viaQuery.status, 200);
+  // ...but it is still a credential.
+  const anonymous = await fetch(`http://127.0.0.1:${h.port}/v1/blobs/${blob.id}`);
+  assert.equal(anonymous.status, 401);
+
+  // A message may not reference evidence the server does not hold.
+  const dangling = await call(h, 'POST', '/v1/channels/evidence/messages', {
+    token: alphaToken,
+    body: { subject: 's', body: 'b', attachments: ['0'.repeat(64)] },
+  });
+  assert.equal(dangling.status, 400);
+  assert.match(dangling.json.error, /unknown blob/);
+});
+
+test('an agent can see what it is actually subscribed to', async () => {
+  await createChannel('subs', ['alpha']);
+  const before = await call<{ channels: unknown[]; unwatched: string[]; line_sockets: number }>(
+    h,
+    'GET',
+    '/v1/agents/me/subscriptions',
+    { token: alphaToken },
+  );
+  assert.equal(before.status, 200);
+  assert.deepEqual(before.json.channels, [], 'member, but listening to nothing');
+  assert.ok(before.json.unwatched.includes('subs'), 'the gap is named, not implied');
+
+  const one = await FrameLog.open(h, `/v1/channels/subs/ws?token=${alphaToken}&since=0`);
+  const two = await FrameLog.open(h, `/v1/channels/subs/ws?token=${alphaToken}&since=0`);
+  try {
+    await sleep(80);
+    const during = await call<{ channels: { channel: string; sockets: number }[]; unwatched: string[] }>(
+      h,
+      'GET',
+      '/v1/agents/me/subscriptions',
+      { token: alphaToken },
+    );
+    // The duplicate-Monitor failure mode, visible as a number.
+    assert.deepEqual(during.json.channels.find((c) => c.channel === 'subs'), { channel: 'subs', sockets: 2 });
+    assert.ok(!during.json.unwatched.includes('subs'));
+  } finally {
+    one.close();
+    two.close();
+  }
+});
+
+test('presence advances on any authenticated request, not just on connect', async () => {
+  const joinKey = (await call<{ join_key: string }>(h, 'GET', '/v1/join-key', { token: h.operatorToken })).json
+    .join_key;
+  const fresh = await call<{ agent: string; token: string }>(h, 'POST', '/v1/join', {
+    token: joinKey,
+    body: { name: 'seen-by-request' },
+  });
+  const roster = async (): Promise<string | null> => {
+    const list = await call<{ agents: { name: string; last_seen_at: string | null }[] }>(h, 'GET', '/v1/agents', {
+      token: h.operatorToken,
+    });
+    return list.json.agents.find((a) => a.name === fresh.json.agent)?.last_seen_at ?? null;
+  };
+  assert.equal(await roster(), null, 'joining is not yet a sign of life');
+  await call(h, 'GET', '/v1/agents/me', { token: fresh.json.token });
+  assert.notEqual(await roster(), null, 'a plain REST call counts — it is the agent, alive, right now');
 });
 
 test('every agent is handed the welcome at join and again on recovery', async () => {

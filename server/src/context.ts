@@ -36,4 +36,11 @@ export const MAX_SIGNAL_CHARS = 200;
 export const MAX_NOTE_CHARS = 2000;
 /** The operator's welcome text — long enough to set a tone, not a manual. */
 export const MAX_WELCOME_CHARS = 4000;
+/**
+ * Attachments. A screenshot or a log excerpt travels; a video does not — this
+ * is an evidence channel, not a file server, and every byte sits in the
+ * operator's own data dir forever.
+ */
+export const MAX_BLOB_BYTES = 4 * 1024 * 1024;
+export const MAX_ATTACHMENTS = 8;
 export const MAX_PURPOSE_CHARS = 2000;

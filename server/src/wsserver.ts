@@ -92,17 +92,34 @@ function route(ctx: Ctx, wss: WebSocketServer, req: http.IncomingMessage, socket
 
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit('connection', ws, req);
-      const conn: ChannelConnection = { socket: ws, channelId: channel.id, channelName: channel.name, agentId, agentName };
       // Replay first, then register: no await in between, so no live frame can
       // slip past and nothing is delivered twice.
-      for (const message of ctx.store.messagesSince(channel.id, since)) {
-        if (!Hub.addressedTo(message.to, agentName)) continue;
-        // Agents are never pushed wake:false records, replay included — a
-        // reconnect must not turn the log into wake-ups. Explicit plain
-        // pulls (and operator sockets) are where the record lives.
-        if (!message.wake && agentName !== null) continue;
+      const backlog = ctx.store
+        .messagesSince(channel.id, since)
+        .filter((m) => Hub.addressedTo(m.to, agentName));
+      // Agents are never pushed wake:false records, replay included — a
+      // reconnect must not turn the log into wake-ups. Explicit plain
+      // pulls (and operator sockets) are where the record lives.
+      const visible = agentName === null ? backlog : backlog.filter((m) => m.wake !== false);
+      // Digests ride along only if the replay is waking this agent anyway. A
+      // reconnect whose backlog is nothing but digests must stay silent —
+      // otherwise "delivered without waking" becomes "woken by re-arming",
+      // which is the cost the mode exists to avoid. Held ones stay owed:
+      // digestFloor keeps them queued for the next waking frame.
+      const wakes = visible.some((m) => m.wake === true);
+      const replay = agentName !== null && !wakes ? [] : visible;
+      for (const message of replay) {
         ws.send(JSON.stringify({ type: 'message', channel: channel.name, message }));
       }
+      const digestFloor = replay.length > 0 ? (replay[replay.length - 1] as { seq: number }).seq : since;
+      const conn: ChannelConnection = {
+        socket: ws,
+        channelId: channel.id,
+        channelName: channel.name,
+        agentId,
+        agentName,
+        digestFloor,
+      };
       ctx.hub.addChannelConnection(conn);
       ws.on('close', () => ctx.hub.removeChannelConnection(conn));
       ws.on('error', () => ctx.hub.removeChannelConnection(conn));

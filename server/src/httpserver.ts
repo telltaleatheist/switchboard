@@ -5,10 +5,13 @@
  * 500 that is also logged to stderr — nothing is swallowed.
  */
 
+import { createHash } from 'node:crypto';
+import * as fs from 'node:fs';
 import * as http from 'node:http';
-import { principalFromHeaders, requireAgent, requireOperator, type Principal } from './auth';
-import { MAX_BODY_BYTES, type Ctx } from './context';
-import { HttpError, badRequest, payloadTooLarge } from './errors';
+import * as path from 'node:path';
+import { principalFromHeaders, principalFromToken, requireAgent, requireOperator, type Principal } from './auth';
+import { MAX_BLOB_BYTES, MAX_BODY_BYTES, type Ctx } from './context';
+import { HttpError, badRequest, notFound as notFoundError, payloadTooLarge, unauthorized } from './errors';
 import { matchRoute, type Req, type Result, type Route } from './router';
 import { decodeUtf8Strict } from './util';
 
@@ -51,6 +54,15 @@ async function handle(
     return;
   }
 
+  // Blobs bypass the router deliberately: everything else in this API is JSON
+  // in, JSON out, and the router's pipeline decodes bodies as strict UTF-8.
+  // Attachment bytes are neither text nor small, so they get their own path
+  // rather than a base64 detour through the JSON surface.
+  if (url.pathname === '/v1/blobs' || url.pathname.startsWith('/v1/blobs/')) {
+    await handleBlob(ctx, req, res, url);
+    return;
+  }
+
   const matched = matchRoute(routes, req.method ?? 'GET', url.pathname);
   if (matched === null) {
     respondJson(res, 404, { error: `no such endpoint: ${req.method} ${url.pathname}` });
@@ -80,6 +92,13 @@ async function handle(
     return;
   }
 
+  // Presence is "last sign of life", and an authenticated request is a sign of
+  // life. Stamping only on connect made a busy agent — one that posts every
+  // few minutes over an old socket — read as hours stale in the console, which
+  // is exactly when the operator is asking "is it working or asleep?". The
+  // store throttles the write, so this costs nothing per request.
+  if (principal.kind === 'agent') ctx.store.touchAgentSeen(principal.agent.id);
+
   const request: Req = {
     method: req.method ?? 'GET',
     path: url.pathname,
@@ -102,14 +121,14 @@ async function handle(
   }
 }
 
-function readBody(req: http.IncomingMessage): Promise<Buffer> {
+function readBody(req: http.IncomingMessage, cap: number = MAX_BODY_BYTES): Promise<Buffer> {
   return new Promise<Buffer>((resolve, reject) => {
     // Refuse an over-sized body before reading a byte when the client declared
     // its length; the streaming guard below covers chunked uploads.
     const declared = req.headers['content-length'];
-    if (typeof declared === 'string' && /^\d+$/.test(declared) && Number(declared) > MAX_BODY_BYTES) {
+    if (typeof declared === 'string' && /^\d+$/.test(declared) && Number(declared) > cap) {
       req.resume();
-      reject(payloadTooLarge(`request body exceeds the ${MAX_BODY_BYTES} byte limit`));
+      reject(payloadTooLarge(`request body exceeds the ${cap} byte limit`));
       return;
     }
     const chunks: Buffer[] = [];
@@ -119,10 +138,10 @@ function readBody(req: http.IncomingMessage): Promise<Buffer> {
     req.on('data', (chunk: Buffer) => {
       if (settled) return;
       total += chunk.length;
-      if (total > MAX_BODY_BYTES) {
+      if (total > cap) {
         settled = true;
         req.destroy();
-        reject(payloadTooLarge(`request body exceeds the ${MAX_BODY_BYTES} byte limit`));
+        reject(payloadTooLarge(`request body exceeds the ${cap} byte limit`));
         return;
       }
       chunks.push(chunk);
@@ -138,6 +157,81 @@ function readBody(req: http.IncomingMessage): Promise<Buffer> {
       reject(badRequest(`request stream failed: ${err.message}`));
     });
   });
+}
+
+/**
+ * `POST /v1/blobs` (upload) and `GET /v1/blobs/{id}` (download).
+ *
+ * Content-addressed: the id IS the sha256 of the bytes, so uploading the same
+ * screenshot twice writes one file and returns the same id. The bytes live in
+ * `<dataDir>/blobs/<id>` rather than in SQLite — a 4 MB row would bloat every
+ * WAL checkpoint for something the database never queries.
+ *
+ * GET accepts `?token=` as well as the Authorization header, for the same
+ * reason the WebSocket URLs do: an `<img src>` in the console cannot set a
+ * header. The token is still a real credential — this is not public.
+ */
+async function handleBlob(
+  ctx: Ctx,
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  url: URL,
+): Promise<void> {
+  try {
+    const headerToken = req.headers['authorization'];
+    const queryToken = url.searchParams.get('token');
+    const principal =
+      typeof headerToken === 'string' && headerToken.length > 0
+        ? principalFromHeaders(ctx, req.headers)
+        : queryToken !== null && queryToken.length > 0
+          ? principalFromToken(ctx, queryToken)
+          : (() => {
+              throw unauthorized('blobs require an agent or operator token');
+            })();
+    if (principal.kind === 'agent') ctx.store.touchAgentSeen(principal.agent.id);
+
+    if (req.method === 'POST' && url.pathname === '/v1/blobs') {
+      const mediaType = (req.headers['content-type'] ?? 'application/octet-stream').split(';')[0]?.trim() || 'application/octet-stream';
+      const nameRaw = url.searchParams.get('name');
+      const name = nameRaw === null ? null : nameRaw.slice(0, 200);
+      const bytes = await readBody(req, MAX_BLOB_BYTES);
+      if (bytes.length === 0) throw badRequest('an attachment must have bytes');
+      const id = createHash('sha256').update(bytes).digest('hex');
+      const dir = path.join(ctx.config.dataDir, 'blobs');
+      fs.mkdirSync(dir, { recursive: true });
+      const file = path.join(dir, id);
+      if (!fs.existsSync(file)) fs.writeFileSync(file, bytes);
+      const row = ctx.store.putBlob(id, mediaType, bytes.length, name);
+      respondJson(res, 201, row);
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname.startsWith('/v1/blobs/')) {
+      const id = decodeURIComponent(url.pathname.slice('/v1/blobs/'.length));
+      const row = ctx.store.getBlob(id);
+      if (!row || !/^[0-9a-f]{64}$/.test(id)) throw notFoundError(`no such attachment '${id}'`);
+      const file = path.join(ctx.config.dataDir, 'blobs', id);
+      let bytes: Buffer;
+      try {
+        bytes = fs.readFileSync(file);
+      } catch {
+        throw notFoundError(`attachment '${id}' is recorded but its bytes are missing`);
+      }
+      if (res.writableEnded) return;
+      res.writeHead(200, {
+        'Content-Type': row.media_type,
+        'Content-Length': String(bytes.length),
+        // Content-addressed, so the bytes for an id can never change.
+        'Cache-Control': 'private, max-age=31536000, immutable',
+      });
+      res.end(bytes);
+      return;
+    }
+
+    respondJson(res, 405, { error: `method ${req.method} not allowed on ${url.pathname}` });
+  } catch (err) {
+    respondError(res, err);
+  }
 }
 
 export function respondJson(

@@ -52,8 +52,11 @@
               @if (m.in_reply_to !== null) {
                 <span class="dim">↩ {{ replyLabel(m.in_reply_to) }}</span>
               }
-              @if (!m.wake) {
+              @if (m.wake === false) {
                 <span class="badge">record only</span>
+              }
+              @if (m.wake === 'digest') {
+                <span class="badge">digest</span>
               }
               <span class="badge to-badge">to: {{ toLabel(m.to) }}</span>
               @if (m.signal) {
@@ -79,6 +82,21 @@
               }
             } @else {
               <pre class="body subjectless">{{ m.body }}</pre>
+            }
+            @if (m.attachments; as files) {
+              <div class="attachments">
+                @for (f of files; track f.id) {
+                  @if (isImage(f)) {
+                    <a class="shot" [href]="blobUrl(f.id)" target="_blank" rel="noopener">
+                      <img [src]="blobUrl(f.id)" [alt]="f.name ?? 'attachment'" />
+                    </a>
+                  } @else {
+                    <a class="file" [href]="blobUrl(f.id)" target="_blank" rel="noopener">
+                      {{ f.name ?? f.media_type }} <span class="dim">({{ sizeLabel(f.bytes) }})</span>
+                    </a>
+                  }
+                }
+              </div>
             }
           </article>
         }
@@ -111,7 +129,25 @@
           [disabled]="sending()"
           (keydown.enter)="onEnter($event)"
         />
+        @if (pendingAttachments().length > 0) {
+          <div class="pending-attachments">
+            @for (f of pendingAttachments(); track f.id) {
+              <span class="pending">
+                @if (isImage(f)) {
+                  <img [src]="blobUrl(f.id)" [alt]="f.name ?? 'attachment'" />
+                }
+                {{ f.name ?? f.media_type }}
+                <span class="dim">({{ sizeLabel(f.bytes) }})</span>
+                <button type="button" class="kick" title="Remove" (click)="dropAttachment(f.id)">×</button>
+              </span>
+            }
+          </div>
+        }
         <div class="compose-row">
+          <label class="attach" [class.busy]="uploading()" title="Attach a screenshot or log">
+            {{ uploading() ? '…' : '📎' }}
+            <input type="file" multiple (change)="onFilesPicked($event)" [disabled]="uploading() || sending()" />
+          </label>
           <textarea
             rows="2"
             placeholder="Message as operator (Enter to send, Shift+Enter for a new line)"

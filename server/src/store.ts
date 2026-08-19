@@ -91,6 +91,37 @@ export interface ChannelRow {
   note: string | null;
 }
 
+/**
+ * How a message reaches the people it is addressed to. Stored as the integer
+ * in messages.wake: 0 = record-only, 1 = wake, 2 = digest. An older build
+ * reading a 2 sees "not 0" and treats it as a normal wake — the safe way for
+ * this to degrade.
+ */
+export type WakeMode = boolean | 'digest';
+
+export function wakeToColumn(mode: WakeMode): number {
+  if (mode === 'digest') return 2;
+  return mode ? 1 : 0;
+}
+
+export function wakeFromColumn(value: number): WakeMode {
+  if (value === 2) return "digest";
+  return value !== 0;
+}
+
+/**
+ * An attachment's metadata. `id` is the sha256 of the bytes, which is also
+ * their filename under <dataDir>/blobs — content addressing, so re-uploading
+ * the same screenshot costs one row and no second copy.
+ */
+export interface BlobRow {
+  id: string;
+  media_type: string;
+  bytes: number;
+  name: string | null;
+  created_at: string;
+}
+
 export interface MessageRow {
   id: number;
   channel_id: number;
@@ -103,6 +134,7 @@ export interface MessageRow {
   body: string;
   in_reply_to: number | null;
   reply_to_json: string | null;
+  attachments_json: string | null;
   wake: number;
   signal: string | null;
   state: string | null;
@@ -119,8 +151,15 @@ export interface WireMessage {
   body: string;
   /** Scalar when one seq is cited (back-compat), array when several, null when none. */
   in_reply_to: number | number[] | null;
-  /** False = record-only: in history and transcripts, never pushed to an agent. */
-  wake: boolean;
+  /**
+   * true      — wake the addressees now (the default).
+   * false     — record-only: in history and transcripts, pushed to no agent.
+   * "digest"  — held: delivered the next time that agent is woken for another
+   *             reason, so the record is never invisible but never interrupts.
+   */
+  wake: WakeMode;
+  /** Evidence that travelled with the message; null when there was none. */
+  attachments: BlobRow[] | null;
   signal: string | null;
   state: string | null;
 }
@@ -156,7 +195,8 @@ export interface NewMessage {
   body: string;
   /** Every cited seq (deduped, validated); empty array = no citations. */
   in_reply_to: number[];
-  wake: boolean;
+  attachments: string[];
+  wake: WakeMode;
   signal: string | null;
   state: string | null;
 }
@@ -630,8 +670,8 @@ export class Store {
       const ts = nowIso();
       this.db
         .prepare(
-          `INSERT INTO messages(channel_id, seq, ts, sender_id, sender_name, to_json, subject, body, in_reply_to, reply_to_json, wake, signal, state)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO messages(channel_id, seq, ts, sender_id, sender_name, to_json, subject, body, in_reply_to, reply_to_json, attachments_json, wake, signal, state)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           channel.id,
@@ -644,7 +684,8 @@ export class Store {
           msg.body,
           msg.in_reply_to.length > 0 ? msg.in_reply_to[0] : null,
           msg.in_reply_to.length > 0 ? JSON.stringify(msg.in_reply_to) : null,
-          msg.wake ? 1 : 0,
+          msg.attachments.length > 0 ? JSON.stringify(msg.attachments) : null,
+          wakeToColumn(msg.wake),
           msg.signal,
           msg.state,
         );
@@ -677,7 +718,7 @@ export class Store {
          WHERE m.channel_id = ? AND m.seq > ? ORDER BY m.seq`,
       )
       .all(channelId, since) as (MessageRow & { resolved_sender: string })[];
-    return rows.map(toWireMessage);
+    return rows.map((row) => toWireMessage(row, (ids) => this.getBlobs(ids)));
   }
 
   seqExists(channelId: number, seq: number): boolean {
@@ -752,6 +793,36 @@ export class Store {
     this.db.prepare('UPDATE patch_requests SET status = ? WHERE id = ?').run(status, id);
   }
 
+  // ----------------------------------------------------------------- blobs
+
+  /**
+   * Record an uploaded attachment. Content-addressed, so an id that is already
+   * present is simply reused — the same screenshot pasted twice is one file.
+   */
+  putBlob(id: string, mediaType: string, bytes: number, name: string | null): BlobRow {
+    const existing = this.getBlob(id);
+    if (existing) return existing;
+    const created = nowIso();
+    this.db
+      .prepare("INSERT INTO blobs(id, media_type, bytes, name, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(id, mediaType, bytes, name, created);
+    return { id, media_type: mediaType, bytes, name, created_at: created };
+  }
+
+  getBlob(id: string): BlobRow | undefined {
+    return this.db.prepare("SELECT * FROM blobs WHERE id = ?").get(id) as BlobRow | undefined;
+  }
+
+  /** In the order asked for, silently dropping ids that no longer exist. */
+  getBlobs(ids: string[]): BlobRow[] {
+    const out: BlobRow[] = [];
+    for (const id of ids) {
+      const row = this.getBlob(id);
+      if (row) out.push(row);
+    }
+    return out;
+  }
+
   // -------------------------------------------------------------- archives
 
   insertArchive(channelName: string, closedAt: string, reason: string, transcript: string): number {
@@ -772,7 +843,10 @@ export class Store {
   }
 }
 
-export function toWireMessage(row: MessageRow & { resolved_sender: string }): WireMessage {
+export function toWireMessage(
+  row: MessageRow & { resolved_sender: string },
+  resolveBlobs?: (ids: string[]) => BlobRow[],
+): WireMessage {
   // Citations: scalar out when one (back-compat with every existing reader),
   // array when several. reply_to_json is authoritative; the legacy scalar
   // column covers pre-v5 rows.
@@ -791,7 +865,11 @@ export function toWireMessage(row: MessageRow & { resolved_sender: string }): Wi
     subject: row.subject === '' ? null : row.subject,
     body: row.body,
     in_reply_to: inReplyTo,
-    wake: row.wake !== 0,
+    wake: wakeFromColumn(row.wake),
+    attachments:
+      row.attachments_json === null || resolveBlobs === undefined
+        ? null
+        : resolveBlobs(JSON.parse(row.attachments_json) as string[]),
     signal: row.signal,
     state: row.state,
   };

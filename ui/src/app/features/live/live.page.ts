@@ -1,7 +1,7 @@
 import { Component, ElementRef, OnDestroy, OnInit, ViewChild, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiError, ApiService } from '../../core/api.service';
-import type { ChannelSummary, ChannelWsFrame, Message } from '../../core/api.models';
+import type { BlobRef, ChannelSummary, ChannelWsFrame, Message } from '../../core/api.models';
 import { startPolling } from '../../core/polling';
 import { RelativeTimePipe } from '../../shared/relative-time.pipe';
 
@@ -30,6 +30,9 @@ export class LivePage implements OnInit, OnDestroy {
   protected readonly composeText = signal('');
   /** Optional — empty means the message goes out with no subject at all. */
   protected readonly composeSubject = signal('');
+  /** Uploaded and waiting to ride on the next send. */
+  protected readonly pendingAttachments = signal<BlobRef[]>([]);
+  protected readonly uploading = signal(false);
   /** '' = everyone; otherwise a member name for an addressed (to:) send. */
   protected readonly recipient = signal('');
   protected readonly sending = signal(false);
@@ -134,6 +137,52 @@ export class LivePage implements OnInit, OnDestroy {
     el.scrollTop = el.scrollHeight;
   }
 
+  /**
+   * Upload straight away rather than at send time: the operator sees the
+   * attachment land (or fail) while still composing, instead of losing a typed
+   * message to a failed upload.
+   */
+  protected async onFilesPicked(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const files = Array.from(input.files ?? []);
+    input.value = ''; // let the same file be picked again later
+    if (files.length === 0) return;
+    this.uploading.set(true);
+    this.sendError.set(null);
+    try {
+      for (const file of files) {
+        const blob = await this.api.uploadBlob(file);
+        this.pendingAttachments.update((list) =>
+          list.some((b) => b.id === blob.id) ? list : [...list, blob],
+        );
+      }
+    } catch (err) {
+      this.sendError.set(err instanceof ApiError ? err.message : 'Failed to upload the attachment.');
+    } finally {
+      this.uploading.set(false);
+    }
+  }
+
+  protected dropAttachment(id: string): void {
+    this.pendingAttachments.update((list) => list.filter((b) => b.id !== id));
+  }
+
+  protected isImage(blob: BlobRef): boolean {
+    return blob.media_type.startsWith('image/');
+  }
+
+  protected blobUrl(id: string): string {
+    return this.api.blobUrl(id);
+  }
+
+  protected sizeLabel(bytes: number): string {
+    return bytes < 1024
+      ? `${bytes} B`
+      : bytes < 1024 * 1024
+        ? `${Math.round(bytes / 1024)} KB`
+        : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
   protected toLabel(to: string[] | null): string {
     return to && to.length > 0 ? to.join(', ') : 'everyone';
   }
@@ -164,15 +213,17 @@ export class LivePage implements OnInit, OnDestroy {
   protected async sendMessage(): Promise<void> {
     const name = this.selectedChannel();
     const body = this.composeText().trim();
-    if (!name || body.length === 0 || this.sending()) return;
+    if (!name || body.length === 0 || this.sending() || this.uploading()) return;
     this.sending.set(true);
     this.sendError.set(null);
     try {
       const to = this.recipient();
       const subject = this.composeSubject().trim();
-      await this.api.sendChannelMessage(name, subject || null, body, to ? [to] : undefined);
+      const attachments = this.pendingAttachments().map((b) => b.id);
+      await this.api.sendChannelMessage(name, subject || null, body, to ? [to] : undefined, attachments);
       this.composeText.set('');
       this.composeSubject.set('');
+      this.pendingAttachments.set([]);
     } catch (err) {
       this.sendError.set(err instanceof ApiError ? err.message : 'Failed to send the message.');
     } finally {
