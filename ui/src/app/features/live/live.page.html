@@ -88,7 +88,7 @@
                 @for (f of files; track f.id) {
                   @if (isImage(f)) {
                     <a class="shot" [href]="blobUrl(f.id)" target="_blank" rel="noopener">
-                      <img [src]="blobUrl(f.id)" [alt]="f.name ?? 'attachment'" />
+                      <img [src]="blobUrl(f.id)" [alt]="f.name ?? 'attachment'" (load)="scheduleScroll()" />
                     </a>
                   } @else {
                     <a class="file" [href]="blobUrl(f.id)" target="_blank" rel="noopener">

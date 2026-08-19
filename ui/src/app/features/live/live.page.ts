@@ -41,6 +41,8 @@ export class LivePage implements OnInit, OnDestroy {
   private ws: WebSocket | null = null;
   private stopPolling?: () => void;
   private stickToBottom = true;
+  /** Set when a channel is opened: the next render jumps to the newest message. */
+  private forceBottom = true;
 
   ngOnInit(): void {
     void this.refreshChannels();
@@ -84,6 +86,8 @@ export class LivePage implements OnInit, OnDestroy {
   private connect(name: string): void {
     this.ws?.close();
     this.messages.set([]);
+    this.stickToBottom = true;
+    this.forceBottom = true;
     this.closeInfo.set(null);
     this.shutdownNotice.set(false);
     this.wsStatus.set('connecting');
@@ -107,7 +111,7 @@ export class LivePage implements OnInit, OnDestroy {
       }
       if (frame.type === 'message') {
         this.messages.update((list) => [...list, frame.message]);
-        queueMicrotask(() => this.maybeScrollToBottom());
+        this.scheduleScroll();
       } else if (frame.type === 'shutdown') {
         this.shutdownNotice.set(true);
       }
@@ -129,11 +133,36 @@ export class LivePage implements OnInit, OnDestroy {
     const el = this.scrollArea?.nativeElement;
     if (!el) return;
     this.stickToBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    // Reading something further up ends the open-the-channel jump: from here
+    // on, the feed follows only while you are already at the bottom. Our own
+    // programmatic scrolls land AT the bottom, so they never trip this.
+    if (!this.stickToBottom) this.forceBottom = false;
+  }
+
+  /**
+   * Scrolling has to wait for the DOM to actually carry the new message.
+   * A microtask runs BEFORE Angular renders, so it measured a stale
+   * scrollHeight and parked the feed one screen short of the newest message —
+   * which is exactly the bug this was supposed to fix. The frame callback
+   * covers the normal case; the short timeout covers a replay whose layout
+   * settles a beat later. Both are idempotent.
+   */
+  protected scheduleScroll(): void {
+    requestAnimationFrame(() => this.maybeScrollToBottom());
+    setTimeout(() => this.maybeScrollToBottom(), 80);
   }
 
   private maybeScrollToBottom(): void {
     const el = this.scrollArea?.nativeElement;
-    if (!el || !this.stickToBottom) return;
+    if (!el) return;
+    // A freshly opened channel always lands at the newest message — you are
+    // here to read what just happened, not the top of the replay. After that,
+    // only follow along if the reader has not scrolled up to look at
+    // something.
+    // forceBottom is NOT cleared here: a replay arrives as many frames, and
+    // clearing on the first one leaves the feed parked one screen short of
+    // the newest message. It ends when the reader scrolls up (onScroll).
+    if (!this.stickToBottom && !this.forceBottom) return;
     el.scrollTop = el.scrollHeight;
   }
 

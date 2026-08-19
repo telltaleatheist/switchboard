@@ -1,3 +1,11 @@
+/* Fill the content pane so .feed can scroll rather than stretch (see the
+   app-root note in styles.css). */
+:host {
+  display: block;
+  height: 100%;
+  min-height: 0;
+}
+
 .live-layout {
   display: flex;
   flex-direction: column;

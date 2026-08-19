@@ -70,6 +70,17 @@ body {
   height: 100%;
 }
 
+/*
+ * Angular component hosts are inline elements with auto height by default, so
+ * a height:100% chain silently breaks at <app-root> and every "scrollable"
+ * pane grows the page instead of scrolling inside itself. Naming the host is
+ * what makes the live feed an actual scroll container.
+ */
+app-root {
+  display: block;
+  height: 100%;
+}
+
 body {
   margin: 0;
   background: var(--bg);
