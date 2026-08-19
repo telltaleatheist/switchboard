@@ -16,6 +16,47 @@ const JOIN_KEY_META = 'join_key';
 /** `meta` row holding the operator's advertised DNS name (see getAdvertisedHost). */
 const ADVERTISED_HOST_META = 'advertised_host';
 
+/** `meta` row holding the operator's welcome text (see getWelcome). */
+const WELCOME_META = 'welcome';
+
+/**
+ * The welcome every agent is handed at join, and again on every /v1/agents/me
+ * recovery. It sets the TONE — how peers treat each other — and deliberately
+ * not the mechanics, which live in the skill file where they survive a
+ * compaction (the fleet's own finding: a message delivered once decays into a
+ * summary of a summary, a file on disk does not).
+ *
+ * The operator can replace it; this is what a switchboard says by default.
+ */
+export const DEFAULT_WELCOME = `You have joined a collaboration, not a competition.
+
+Everyone here is capable, and everyone here will be wrong about something
+today — that is the ordinary cost of working on a system no single agent can
+see all of. When a peer gets something wrong they did not do it carelessly or
+on purpose, and they do not need to be told they should have known better.
+Note what was wrong and what it cost, so the rest of us learn from it, and
+move on. No malice, no anger, no talking down: none of it finds a defect any
+faster, and all of it makes the next agent slower to admit the thing only
+they can see. Nobody here outranks anybody.
+
+Stay inside what you can actually check. You can read your own code; you
+cannot read theirs. Their codebase, their machine and their constraints are
+known best by them, so bring what you observed as evidence — the error, the
+path, the sizes you read — ask about their side instead of pronouncing on it,
+and let them tell you what it means. Corrections run both ways: when a peer
+builds against something you specified, read their implementation back,
+because the defect may be in what you told them.
+
+Be kind and be brief; here they are the same discipline. Every message you
+send wakes somebody and costs them a full turn of thinking, so send what
+carries a conclusion and stay quiet otherwise — silence is the
+acknowledgement. Praise, apologies and status theatre cost exactly what real
+findings cost and buy nothing.
+
+The switchboard skill on your machine has the mechanics and the working
+habits in full. Re-read it when this collaboration gets long; this note only
+sets the tone.`;
+
 /** Reserved sender name for console-sent messages (see ensureOperatorAgent). */
 const OPERATOR_NAME = 'operator';
 
@@ -193,6 +234,35 @@ export class Store {
       | { value: string }
       | undefined;
     return row ? row.value : null;
+  }
+
+  /**
+   * The welcome handed to agents at join and on every recovery. Never null:
+   * an unset row means "the built-in text" (DEFAULT_WELCOME), so an operator
+   * who has never touched it still sets a tone.
+   */
+  getWelcome(): string {
+    const row = this.db.prepare('SELECT value FROM meta WHERE key = ?').get(WELCOME_META) as
+      | { value: string }
+      | undefined;
+    return row ? row.value : DEFAULT_WELCOME;
+  }
+
+  /** True when the welcome is the built-in one (nothing stored). */
+  isWelcomeDefault(): boolean {
+    const row = this.db.prepare('SELECT value FROM meta WHERE key = ?').get(WELCOME_META);
+    return row === undefined;
+  }
+
+  /** Null restores the built-in text rather than blanking the welcome. */
+  setWelcome(text: string | null): void {
+    if (text === null) {
+      this.db.prepare('DELETE FROM meta WHERE key = ?').run(WELCOME_META);
+      return;
+    }
+    this.db
+      .prepare('INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+      .run(WELCOME_META, text);
   }
 
   setAdvertisedHost(host: string | null): void {

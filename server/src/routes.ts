@@ -13,6 +13,7 @@ import {
   MAX_SIGNAL_CHARS,
   MAX_SUBJECT_CHARS,
   MAX_WAIT_SECONDS,
+  MAX_WELCOME_CHARS,
   SERVER_VERSION,
   type Ctx,
 } from './context';
@@ -174,6 +175,10 @@ const postJoin = (ctx: Ctx, req: Req): Result => {
       token,
       created_at: agent.created_at,
       instance: ctx.store.getInstanceId(),
+      // The operator's welcome: how peers here treat each other. Handed over
+      // at the one moment an agent is guaranteed to read it, and repeated on
+      // /v1/agents/me so a recovery after compaction gets it back.
+      welcome: ctx.store.getWelcome(),
     },
   };
 };
@@ -196,6 +201,9 @@ const getAgentsMe = (ctx: Ctx, req: Req): Result => {
       channels,
       line_seq: fresh.line_seq,
       instance: ctx.store.getInstanceId(),
+      // Repeated here on purpose: /me is the recovery call, and a welcome
+      // read once at join is gone after the first compaction.
+      welcome: ctx.store.getWelcome(),
     },
   };
 };
@@ -315,9 +323,12 @@ const postMessage = (ctx: Ctx, req: Req): Result => {
   const wake = wakeRaw === false ? false : true;
 
   const signal = optionalString(obj, 'signal', MAX_SIGNAL_CHARS);
+  // 'superseded' is the third one the fleet asked for: 'withdrawn' means "I
+  // was wrong", 'superseded' means "this crossed with yours and yours wins" —
+  // a distinction they had been spelling out in prose.
   const state = optionalString(obj, 'state', 32);
-  if (state !== null && state !== 'settled' && state !== 'withdrawn') {
-    throw badRequest("field 'state' must be 'settled' or 'withdrawn'");
+  if (state !== null && state !== 'settled' && state !== 'withdrawn' && state !== 'superseded') {
+    throw badRequest("field 'state' must be 'settled', 'withdrawn' or 'superseded'");
   }
   if (state !== null && cited.length === 0) {
     throw badRequest("field 'state' requires 'in_reply_to' (state marks a change on the referenced thread)");
@@ -480,6 +491,44 @@ const postAdvertisedHost = (ctx: Ctx, req: Req): Result => {
   }
   ctx.store.setAdvertisedHost(host);
   return { status: 200, body: { host } };
+};
+
+const getWelcome = (ctx: Ctx, req: Req): Result => {
+  assertNoUnknownQuery(req.query, []);
+  requireOperator(req.principal);
+  return {
+    status: 200,
+    body: { welcome: ctx.store.getWelcome(), is_default: ctx.store.isWelcomeDefault() },
+  };
+};
+
+/**
+ * Replace the welcome agents are handed at join, or pass null to restore the
+ * built-in text. There is no way to set it EMPTY on purpose: a switchboard
+ * that greets its agents with nothing is a misconfiguration, not a choice.
+ */
+const postWelcome = (ctx: Ctx, req: Req): Result => {
+  assertNoUnknownQuery(req.query, []);
+  requireOperator(req.principal);
+  const obj = parseBody(req, ['welcome']);
+  if (!('welcome' in obj)) {
+    throw badRequest("missing required field 'welcome' (text, or null to restore the default)");
+  }
+  const raw = obj['welcome'];
+  if (raw === null) {
+    ctx.store.setWelcome(null);
+    return { status: 200, body: { welcome: ctx.store.getWelcome(), is_default: true } };
+  }
+  if (typeof raw !== 'string') throw badRequest("field 'welcome' must be a string or null");
+  const text = raw.trim();
+  if (text.length === 0) {
+    throw badRequest("field 'welcome' must not be empty; pass null to restore the default");
+  }
+  if (text.length > MAX_WELCOME_CHARS) {
+    throw badRequest(`field 'welcome' exceeds ${MAX_WELCOME_CHARS} characters`);
+  }
+  ctx.store.setWelcome(text);
+  return { status: 200, body: { welcome: text, is_default: false } };
 };
 
 /**
@@ -745,6 +794,8 @@ export const ROUTES: readonly Route[] = [
   { method: 'POST', pattern: '/v1/agents', auth: 'operator', handler: postAgents },
   { method: 'GET', pattern: '/v1/join-key', auth: 'operator', handler: getJoinKey },
   { method: 'POST', pattern: '/v1/join-key/rotate', auth: 'operator', handler: postJoinKeyRotate },
+  { method: 'GET', pattern: '/v1/welcome', auth: 'operator', handler: getWelcome },
+  { method: 'POST', pattern: '/v1/welcome', auth: 'operator', handler: postWelcome },
   { method: 'GET', pattern: '/v1/advertised-host', auth: 'operator', handler: getAdvertisedHost },
   { method: 'POST', pattern: '/v1/advertised-host', auth: 'operator', handler: postAdvertisedHost },
   { method: 'POST', pattern: '/v1/agents/{name}/rename', auth: 'operator', handler: postAgentRename },

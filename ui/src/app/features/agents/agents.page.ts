@@ -42,6 +42,14 @@ export class AgentsPage implements OnInit, OnDestroy {
   protected readonly hostError = signal<string | null>(null);
   protected readonly savingHost = signal(false);
 
+  /** The welcome every agent is handed at join and on every recovery. */
+  protected readonly welcome = signal('');
+  protected readonly welcomeIsDefault = signal(true);
+  protected readonly welcomeDraft = signal('');
+  protected readonly editingWelcome = signal(false);
+  protected readonly savingWelcome = signal(false);
+  protected readonly welcomeError = signal<string | null>(null);
+
   /**
    * Setup instructions: forced open until the first agent has joined (a new
    * operator lands here and needs to be told about the skill file), then
@@ -68,6 +76,7 @@ export class AgentsPage implements OnInit, OnDestroy {
   ngOnInit(): void {
     void this.refresh();
     void this.loadJoinKey();
+    void this.loadWelcome();
     this.stopPolling = startPolling(() => void this.refresh());
   }
 
@@ -103,6 +112,64 @@ export class AgentsPage implements OnInit, OnDestroy {
     const first = this.advertisedUrls[0];
     const match = first ? /:(\d+)$/.exec(first) : null;
     return match ? (match[1] as string) : '4400';
+  }
+
+  protected async loadWelcome(): Promise<void> {
+    try {
+      const { welcome, is_default } = await this.api.getWelcome();
+      this.welcome.set(welcome);
+      this.welcomeIsDefault.set(is_default);
+      this.welcomeError.set(null);
+    } catch (err) {
+      this.welcomeError.set(err instanceof ApiError ? err.message : 'Failed to load the welcome.');
+    }
+  }
+
+  protected startEditWelcome(): void {
+    this.welcomeDraft.set(this.welcome());
+    this.welcomeError.set(null);
+    this.editingWelcome.set(true);
+  }
+
+  protected cancelEditWelcome(): void {
+    this.editingWelcome.set(false);
+    this.welcomeError.set(null);
+  }
+
+  /** `null` restores the built-in text rather than blanking the welcome. */
+  private async writeWelcome(text: string | null): Promise<void> {
+    this.savingWelcome.set(true);
+    this.welcomeError.set(null);
+    try {
+      const { welcome, is_default } = await this.api.setWelcome(text);
+      this.welcome.set(welcome);
+      this.welcomeIsDefault.set(is_default);
+      this.editingWelcome.set(false);
+    } catch (err) {
+      this.welcomeError.set(err instanceof ApiError ? err.message : 'Failed to save the welcome.');
+    } finally {
+      this.savingWelcome.set(false);
+    }
+  }
+
+  protected async saveWelcome(): Promise<void> {
+    const text = this.welcomeDraft().trim();
+    if (text.length === 0) {
+      this.welcomeError.set('The welcome cannot be empty — use "Restore default" instead.');
+      return;
+    }
+    await this.writeWelcome(text);
+  }
+
+  protected async restoreWelcome(): Promise<void> {
+    const ok = await this.confirmService.ask({
+      title: 'Restore the default welcome?',
+      message: 'Your edited welcome will be replaced by the built-in text. Agents already joined keep working; they see the new text on their next recovery.',
+      confirmLabel: 'Restore default',
+      danger: true,
+    });
+    if (!ok) return;
+    await this.writeWelcome(null);
   }
 
   protected async refresh(): Promise<void> {

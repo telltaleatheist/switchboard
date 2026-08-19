@@ -302,6 +302,13 @@ label {
   background: color-mix(in srgb, var(--danger) 16%, transparent);
   border-color: transparent;
 }
+/* Not an error like withdrawn — the message simply crossed with another and
+   deferred to it, so it reads as neutral rather than red. */
+.badge.superseded {
+  color: var(--text-dim);
+  background: color-mix(in srgb, var(--text-dim) 16%, transparent);
+  border-color: transparent;
+}
 
 .error-text {
   color: var(--danger);

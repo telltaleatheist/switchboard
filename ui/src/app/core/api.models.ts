@@ -85,7 +85,8 @@ export interface Message {
   /** False = record-only: never pushed to any agent; the console still shows it. */
   wake: boolean;
   signal: string | null;
-  state: 'settled' | 'withdrawn' | null;
+  /** 'superseded' = this crossed with another message and defers to it. */
+  state: 'settled' | 'withdrawn' | 'superseded' | null;
 }
 
 export interface MessagesPage {

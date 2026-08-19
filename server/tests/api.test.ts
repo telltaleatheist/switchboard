@@ -703,6 +703,84 @@ test('unpatching a member removes it, notifies only it, and closes its sockets',
   }
 });
 
+test('every agent is handed the welcome at join and again on recovery', async () => {
+  const joinKey = (await call<{ join_key: string }>(h, 'GET', '/v1/join-key', { token: h.operatorToken })).json
+    .join_key;
+
+  const joined = await call<{ token: string; welcome: string }>(h, 'POST', '/v1/join', {
+    token: joinKey,
+    body: { name: 'welcomed' },
+  });
+  assert.equal(joined.status, 201);
+  assert.match(joined.json.welcome, /collaboration, not a competition/);
+
+  // /me repeats it: that is the call an agent makes after a compaction, which
+  // is exactly when a once-delivered welcome would already be gone.
+  const me = await call<{ welcome: string }>(h, 'GET', '/v1/agents/me', { token: joined.json.token });
+  assert.equal(me.json.welcome, joined.json.welcome);
+
+  // The operator can replace it, and null restores the built-in text.
+  const read = await call<{ welcome: string; is_default: boolean }>(h, 'GET', '/v1/welcome', {
+    token: h.operatorToken,
+  });
+  assert.equal(read.json.is_default, true);
+
+  const set = await call<{ welcome: string; is_default: boolean }>(h, 'POST', '/v1/welcome', {
+    token: h.operatorToken,
+    body: { welcome: '  be excellent to each other  ' },
+  });
+  assert.equal(set.status, 200);
+  assert.equal(set.json.welcome, 'be excellent to each other', 'stored trimmed');
+  assert.equal(set.json.is_default, false);
+
+  const second = await call<{ welcome: string }>(h, 'POST', '/v1/join', {
+    token: joinKey,
+    body: { name: 'welcomed-too' },
+  });
+  assert.equal(second.json.welcome, 'be excellent to each other');
+
+  // Empty is a misconfiguration, not a way to switch the welcome off.
+  const blank = await call(h, 'POST', '/v1/welcome', { token: h.operatorToken, body: { welcome: '   ' } });
+  assert.equal(blank.status, 400);
+
+  const restored = await call<{ welcome: string; is_default: boolean }>(h, 'POST', '/v1/welcome', {
+    token: h.operatorToken,
+    body: { welcome: null },
+  });
+  assert.equal(restored.json.is_default, true);
+  assert.match(restored.json.welcome, /collaboration, not a competition/);
+
+  // Agents cannot read or change it.
+  const asAgent = await call(h, 'GET', '/v1/welcome', { token: alphaToken });
+  assert.equal(asAgent.status, 403);
+});
+
+test("state accepts 'superseded' alongside settled and withdrawn", async () => {
+  await createChannel('states', ['alpha', 'beta']);
+  await send(alphaToken, 'states', { subject: 'first', body: 'b' });
+  const crossed = await send(betaToken, 'states', {
+    subject: 'yours wins',
+    body: 'we crossed; building against yours',
+    in_reply_to: 1,
+    state: 'superseded',
+  });
+  assert.equal(crossed.seq, 2);
+  const pulled = await call<{ messages: { state: string | null }[] }>(
+    h,
+    'GET',
+    '/v1/channels/states/messages?since=1',
+    { token: alphaToken },
+  );
+  assert.equal(pulled.json.messages[0]?.state, 'superseded');
+
+  const bogus = await call(h, 'POST', '/v1/channels/states/messages', {
+    token: alphaToken,
+    body: { subject: 's', body: 'b', in_reply_to: 1, state: 'obsolete' },
+  });
+  assert.equal(bogus.status, 400);
+  assert.match(bogus.json.error, /'settled', 'withdrawn' or 'superseded'/);
+});
+
 test('the operator may send without a subject; agents may not', async () => {
   await createChannel('no-subject', ['alpha']);
   const alphaWs = await FrameLog.open(h, `/v1/channels/no-subject/ws?token=${alphaToken}&since=0`);

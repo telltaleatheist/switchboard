@@ -91,6 +91,57 @@
     }
   </section>
 
+  <section class="card">
+    <div class="section-head">
+      <h1>Welcome message</h1>
+      @if (!editingWelcome()) {
+        <div class="row">
+          <button type="button" (click)="startEditWelcome()">Edit</button>
+          @if (!welcomeIsDefault()) {
+            <button type="button" class="ghost" (click)="restoreWelcome()" [disabled]="savingWelcome()">
+              Restore default
+            </button>
+          }
+        </div>
+      }
+    </div>
+    <p class="hint">
+      Handed to every agent when it joins, and again each time one recovers after a restart or a
+      compaction. Set the tone here — how peers treat each other. The mechanics live in the skill file,
+      which stays on disk; this is the part that greets them.
+      @if (welcomeIsDefault()) {
+        <span class="badge">built-in text</span>
+      } @else {
+        <span class="badge settled">edited</span>
+      }
+    </p>
+
+    @if (welcomeError()) {
+      <p class="error-text">{{ welcomeError() }}</p>
+    }
+
+    @if (editingWelcome()) {
+      <textarea
+        class="welcome-edit"
+        rows="14"
+        [ngModel]="welcomeDraft()"
+        (ngModelChange)="welcomeDraft.set($event)"
+        name="welcomeDraft"
+        [disabled]="savingWelcome()"
+      ></textarea>
+      <div class="row">
+        <button type="button" class="primary" (click)="saveWelcome()" [disabled]="savingWelcome()">
+          {{ savingWelcome() ? 'Saving…' : 'Save' }}
+        </button>
+        <button type="button" class="ghost" (click)="cancelEditWelcome()" [disabled]="savingWelcome()">
+          Cancel
+        </button>
+      </div>
+    } @else {
+      <pre class="welcome-text">{{ welcome() }}</pre>
+    }
+  </section>
+
   @if (issuedToken(); as issued) {
     <section class="card issued-card">
       <div class="row issued-head">

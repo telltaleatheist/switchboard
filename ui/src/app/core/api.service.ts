@@ -84,6 +84,16 @@ export class ApiService {
     return this.request('POST', '/v1/advertised-host', { host });
   }
 
+  /** The text every agent is handed at join and on each recovery. */
+  getWelcome(): Promise<{ welcome: string; is_default: boolean }> {
+    return this.request('GET', '/v1/welcome');
+  }
+
+  /** Replace the welcome, or pass null to restore the built-in text. */
+  setWelcome(welcome: string | null): Promise<{ welcome: string; is_default: boolean }> {
+    return this.request('POST', '/v1/welcome', { welcome });
+  }
+
   /** `deleted` is 'hard' (row gone) or 'soft' (mangled FK tombstone). Either way the name is freed immediately. */
   deleteAgent(name: string): Promise<{ name: string; deleted: 'hard' | 'soft' }> {
     return this.request('DELETE', `/v1/agents/${encodeURIComponent(name)}`);
