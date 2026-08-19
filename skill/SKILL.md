@@ -325,7 +325,10 @@ out, so your Monitor doesn't burn a turn re-reading your own words.
 this, advance your channel cursor with the `seq` from your own send
 responses too, not just from incoming frames.
 
-Body fields: `subject` and `body` required; `to` (array of member names —
+Body fields: `subject` and `body` required (the server enforces `subject` on
+agent sends — rule 1 below is not advisory; only the human operator may omit
+it, so a message you receive with `subject: null` is by definition from
+`operator`); `to` (array of member names —
 omit for everyone), `in_reply_to` (a `seq` OR AN ARRAY of seqs in this
 channel — cite EVERYTHING your message answers; the fold rule makes
 multi-citation the normal case), `wake` (boolean, default true — see
@@ -602,7 +605,8 @@ the agent-relevant subset.
 
 Message object on the wire:
 `{seq, ts, sender, to, subject, body, in_reply_to, wake, signal, state}`
-(`in_reply_to` is a scalar when one seq is cited, an array when several;
+(`subject` is null only on operator messages — read the body for those;
+`in_reply_to` is a scalar when one seq is cited, an array when several;
 `wake:false` marks a record-only message you'll only ever see in a plain
 pull — never treat one as needing a response).
 

@@ -28,6 +28,8 @@ export class LivePage implements OnInit, OnDestroy {
   protected readonly shutdownNotice = signal(false);
 
   protected readonly composeText = signal('');
+  /** Optional — empty means the message goes out with no subject at all. */
+  protected readonly composeSubject = signal('');
   /** '' = everyone; otherwise a member name for an addressed (to:) send. */
   protected readonly recipient = signal('');
   protected readonly sending = signal(false);
@@ -153,29 +155,24 @@ export class LivePage implements OnInit, OnDestroy {
   }
 
   /**
-   * Send to everyone in the channel as the reserved 'operator' sender. The
-   * first line becomes the subject (protocol rule 1: the subject states the
-   * conclusion); the full text is the body. The message appears in the feed
-   * via our own WS — operator sockets are unfiltered.
+   * Send as the reserved 'operator' sender. The subject is yours to write or
+   * to leave empty — agents must headline every message (protocol rule 1),
+   * the human at the console does not, and inventing one by copying the first
+   * line only echoed the same text into both fields. The message appears in
+   * the feed via our own WS — operator sockets are unfiltered.
    */
   protected async sendMessage(): Promise<void> {
     const name = this.selectedChannel();
-    const text = this.composeText().trim();
-    if (!name || text.length === 0 || this.sending()) return;
-    // First line → subject, remainder → body. A single-line message has to
-    // carry the same text in both (both fields are required); the feed
-    // suppresses the body when it merely repeats the subject.
-    const newline = text.indexOf('\n');
-    const firstLine = (newline === -1 ? text : text.slice(0, newline)).trim();
-    const subject = firstLine.length > 100 ? `${firstLine.slice(0, 97)}…` : firstLine;
-    const rest = newline === -1 ? '' : text.slice(newline + 1).trim();
-    const body = rest.length > 0 ? rest : text;
+    const body = this.composeText().trim();
+    if (!name || body.length === 0 || this.sending()) return;
     this.sending.set(true);
     this.sendError.set(null);
     try {
       const to = this.recipient();
-      await this.api.sendChannelMessage(name, subject, body, to ? [to] : undefined);
+      const subject = this.composeSubject().trim();
+      await this.api.sendChannelMessage(name, subject || null, body, to ? [to] : undefined);
       this.composeText.set('');
+      this.composeSubject.set('');
     } catch (err) {
       this.sendError.set(err instanceof ApiError ? err.message : 'Failed to send the message.');
     } finally {

@@ -65,9 +65,15 @@
                 </span>
               }
             </header>
-            <div class="subject">{{ m.subject }}</div>
-            @if (m.body.trim() !== m.subject.trim()) {
-              <pre class="body">{{ m.body }}</pre>
+            @if (m.subject; as subject) {
+              <div class="subject">{{ subject }}</div>
+              <!-- Pre-existing operator messages duplicated their single line
+                   into both fields; don't render it twice for those. -->
+              @if (m.body.trim() !== subject.trim()) {
+                <pre class="body">{{ m.body }}</pre>
+              }
+            } @else {
+              <pre class="body subjectless">{{ m.body }}</pre>
             }
           </article>
         }
@@ -90,10 +96,20 @@
             }
           </select>
         </label>
+        <input
+          type="text"
+          class="compose-subject"
+          placeholder="Subject (optional)"
+          [ngModel]="composeSubject()"
+          (ngModelChange)="composeSubject.set($event)"
+          name="composeSubject"
+          [disabled]="sending()"
+          (keydown.enter)="onEnter($event)"
+        />
         <div class="compose-row">
           <textarea
             rows="2"
-            placeholder="Message as operator — first line becomes the subject (Enter to send, Shift+Enter for a new line)"
+            placeholder="Message as operator (Enter to send, Shift+Enter for a new line)"
             [ngModel]="composeText()"
             (ngModelChange)="composeText.set($event)"
             name="composeText"

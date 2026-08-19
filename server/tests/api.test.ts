@@ -703,6 +703,55 @@ test('unpatching a member removes it, notifies only it, and closes its sockets',
   }
 });
 
+test('the operator may send without a subject; agents may not', async () => {
+  await createChannel('no-subject', ['alpha']);
+  const alphaWs = await FrameLog.open(h, `/v1/channels/no-subject/ws?token=${alphaToken}&since=0`);
+  try {
+    const sent = await call<{ seq: number }>(h, 'POST', '/v1/channels/no-subject/messages', {
+      token: h.operatorToken,
+      body: { body: 'go ahead and disarm your monitor' },
+    });
+    assert.equal(sent.status, 201, JSON.stringify(sent.json));
+
+    // Null on the wire — both live push and history read.
+    const frame = await alphaWs.next();
+    assert.equal(frame.message.subject, null);
+    assert.equal(frame.message.body, 'go ahead and disarm your monitor');
+    const pulled = await call<{ messages: { subject: string | null }[] }>(
+      h,
+      'GET',
+      '/v1/channels/no-subject/messages?since=0',
+      { token: alphaToken },
+    );
+    assert.equal(pulled.json.messages[0]?.subject, null);
+
+    // An empty string is not a way in through the back door.
+    const empty = await call(h, 'POST', '/v1/channels/no-subject/messages', {
+      token: h.operatorToken,
+      body: { subject: '', body: 'b' },
+    });
+    assert.equal(empty.status, 400);
+
+    // Agents are still held to protocol rule 1.
+    const fromAgent = await call(h, 'POST', '/v1/channels/no-subject/messages', {
+      token: alphaToken,
+      body: { body: 'no headline' },
+    });
+    assert.equal(fromAgent.status, 400);
+    assert.match(fromAgent.json.error, /missing required field 'subject'/);
+
+    // The transcript heading stops at the timestamp rather than trailing a dash.
+    const closed = await call<{ transcript: string }>(h, 'POST', '/v1/channels/no-subject/close', {
+      token: h.operatorToken,
+      body: {},
+    });
+    assert.equal(closed.status, 200);
+    assert.match(closed.json.transcript, /## \[1\] operator — [^\n—]+\n/);
+  } finally {
+    alphaWs.close();
+  }
+});
+
 test('the operator speaks as the reserved sender "operator"', async () => {
   await createChannel('op-voice', ['alpha', 'beta']);
   const alphaWs = await FrameLog.open(h, `/v1/channels/op-voice/ws?token=${alphaToken}&since=0`);

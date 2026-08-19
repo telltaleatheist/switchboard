@@ -267,7 +267,17 @@ const postMessage = (ctx: Ctx, req: Req): Result => {
   }
 
   const obj = parseBody(req, ['subject', 'body', 'to', 'in_reply_to', 'wake', 'signal', 'state']);
-  const subject = requireString(obj, 'subject', MAX_SUBJECT_CHARS);
+  // Agents must carry a subject — protocol rule 1 (the subject states the
+  // conclusion) is what survives a truncated notification, so it is enforced
+  // rather than encouraged. The OPERATOR may omit it: a human typing a quick
+  // instruction should not have to invent a headline for it, and the console
+  // duplicating one line into both fields read as an echo in every transcript.
+  // Stored as '' because the column is NOT NULL; normalised back to null at
+  // the wire boundary (store.toWireMessage), so clients see subject: null.
+  const subject =
+    req.principal.kind === 'operator'
+      ? (optionalString(obj, 'subject', MAX_SUBJECT_CHARS) ?? '')
+      : requireString(obj, 'subject', MAX_SUBJECT_CHARS);
   const body = requireString(obj, 'body', MAX_BODY_CHARS);
   const to = optionalStringArray(obj, 'to');
   if (to !== null) {
@@ -326,7 +336,8 @@ const postMessage = (ctx: Ctx, req: Req): Result => {
     ts: stored.ts,
     sender: sender.name,
     to,
-    subject,
+    // Same normalisation the stored-row path does: '' means "no subject".
+    subject: subject === '' ? null : subject,
     body,
     in_reply_to: cited.length === 0 ? null : cited.length === 1 ? (cited[0] as number) : cited,
     wake,

@@ -77,7 +77,8 @@ export interface Message {
   ts: string;
   sender: string;
   to: string[] | null;
-  subject: string;
+  /** Null when the operator sent without one; agent messages always carry a subject. */
+  subject: string | null;
   body: string;
   /** Scalar when one seq is cited, array when several. */
   in_reply_to: number | number[] | null;

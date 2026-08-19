@@ -109,6 +109,14 @@
   padding: 0.2rem 0.4rem;
 }
 
+/* Optional — a message sent with this empty carries no subject at all,
+   rather than echoing its own first line. */
+.compose-subject {
+  width: 100%;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
 /* Button stretches to match the textarea's height, resize included. */
 .compose-row {
   display: flex;

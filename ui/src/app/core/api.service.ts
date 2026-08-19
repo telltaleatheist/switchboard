@@ -122,14 +122,19 @@ export class ApiService {
   }
 
   /** Speak in a channel as the reserved 'operator' sender (to: omitted = everyone). */
+  /**
+   * Operator send. `subject` is optional here and nowhere else: the server
+   * lets the operator omit it (agents must always carry one), so an empty
+   * subject is left off the body rather than echoing the message text.
+   */
   sendChannelMessage(
     name: string,
-    subject: string,
+    subject: string | null,
     body: string,
     to?: string[],
   ): Promise<{ seq: number; ts: string }> {
     return this.request('POST', `/v1/channels/${encodeURIComponent(name)}/messages`, {
-      subject,
+      ...(subject && subject.trim().length > 0 ? { subject: subject.trim() } : {}),
       body,
       ...(to && to.length > 0 ? { to } : {}),
     });

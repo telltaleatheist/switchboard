@@ -67,7 +67,8 @@ export interface WireMessage {
   ts: string;
   sender: string;
   to: string[] | null;
-  subject: string;
+  /** Null only on operator sends, which may omit it; agents always carry one. */
+  subject: string | null;
   body: string;
   /** Scalar when one seq is cited (back-compat), array when several, null when none. */
   in_reply_to: number | number[] | null;
@@ -709,7 +710,9 @@ export function toWireMessage(row: MessageRow & { resolved_sender: string }): Wi
     ts: row.ts,
     sender: row.resolved_sender,
     to: row.to_json === null ? null : (JSON.parse(row.to_json) as string[]),
-    subject: row.subject,
+    // '' is the stored form of "no subject" (operator sends may omit it; the
+    // column is NOT NULL). Null on the wire so clients branch on one thing.
+    subject: row.subject === '' ? null : row.subject,
     body: row.body,
     in_reply_to: inReplyTo,
     wake: row.wake !== 0,

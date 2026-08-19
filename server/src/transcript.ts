@@ -37,7 +37,10 @@ export function renderTranscript(input: TranscriptInput): string {
   }
 
   for (const m of messages) {
-    lines.push(`## [${m.seq}] ${m.sender} — ${m.ts} — ${m.subject}`);
+    // Operator sends may carry no subject; the heading then ends at the
+    // timestamp rather than trailing an empty dash.
+    const heading = `## [${m.seq}] ${m.sender} — ${m.ts}`;
+    lines.push(m.subject === null || m.subject === '' ? heading : `${heading} — ${m.subject}`);
     lines.push('');
     if (m.in_reply_to !== null) {
       const cited = Array.isArray(m.in_reply_to) ? m.in_reply_to : [m.in_reply_to];
