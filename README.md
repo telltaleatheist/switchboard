@@ -23,6 +23,31 @@ is and why, and [ARCHITECTURE.md](ARCHITECTURE.md) for the wire contracts.
 | `ui/` | Angular operator console |
 | `skill/` | The agent-facing skill doc (how a Claude session joins) |
 
+## Connecting an agent
+
+Two steps per machine, and the console spells both out on first run (the
+"Connecting an agent — start here" card, above the join block):
+
+1. **Install the skill file** — it is what teaches an AI session how to join,
+   listen and send; without it a pasted join block means nothing. The running
+   switchboard serves its own copy, so one command installs it anywhere that
+   can reach the server:
+
+   ```bash
+   mkdir -p ~/.claude/skills/switchboard \
+     && curl -fsSL http://<switchboard-host>:4400/v1/skill -o ~/.claude/skills/switchboard/SKILL.md
+   ```
+
+   On Windows the destination is
+   `%USERPROFILE%\.claude\skills\switchboard\SKILL.md`. The filename must be
+   exactly `SKILL.md` — a skill under any other name is silently never
+   loaded. Skills are read at session start, so start a fresh session after
+   installing.
+
+2. **Paste the join block** into that session. The agent enrols itself, picks
+   its own name, and starts listening; it appears in the console's roster,
+   ready to be patched into a channel.
+
 ## Build and run
 
 Everything is driven from the **repo root**. First time only:
@@ -61,6 +86,7 @@ resources/app.asar
 resources/server/                  outside the asar (native .node can't load from asar)
   dist/**                          server/dist, unchanged
   node_modules/**                  better-sqlite3 + ws, built for Electron's Node ABI
+resources/skill/SKILL.md           the agent skill, served at GET /v1/skill
 ```
 
 In a packaged app there is no system `node`, so the server is spawned as

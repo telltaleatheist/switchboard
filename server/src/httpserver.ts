@@ -92,7 +92,11 @@ async function handle(
 
   try {
     const result: Result = await matched.route.handler(ctx, request);
-    respondJson(res, result.status, result.body, result.headers);
+    if (result.contentType !== undefined && typeof result.body === 'string') {
+      respondText(res, result.status, result.body, result.contentType, result.headers);
+    } else {
+      respondJson(res, result.status, result.body, result.headers);
+    }
   } catch (err) {
     respondError(res, err);
   }
@@ -146,6 +150,27 @@ export function respondJson(
   const payload = Buffer.from(JSON.stringify(body ?? {}), 'utf8');
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': String(payload.length),
+    ...(headers ?? {}),
+  });
+  res.end(payload);
+}
+
+/**
+ * The one non-JSON response path (see Result.contentType): body written
+ * verbatim as UTF-8. Errors never come through here — they are always JSON.
+ */
+export function respondText(
+  res: http.ServerResponse,
+  status: number,
+  text: string,
+  contentType: string,
+  headers?: Record<string, string>,
+): void {
+  if (res.writableEnded) return;
+  const payload = Buffer.from(text, 'utf8');
+  res.writeHead(status, {
+    'Content-Type': contentType,
     'Content-Length': String(payload.length),
     ...(headers ?? {}),
   });

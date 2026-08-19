@@ -1,4 +1,5 @@
 import { Component, Input, computed, signal } from '@angular/core';
+import { copyText } from '../clipboard';
 
 /**
  * Renders THE bootstrap block (ARCHITECTURE.md ui/): one universal block,
@@ -33,21 +34,7 @@ export class BootstrapBlock {
   }
 
   protected async copy(): Promise<void> {
-    const text = this.text();
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      // Clipboard API unavailable (insecure context, permissions) — fall
-      // back to a manual-select textarea trick.
-      const el = document.createElement('textarea');
-      el.value = text;
-      el.style.position = 'fixed';
-      el.style.opacity = '0';
-      document.body.appendChild(el);
-      el.select();
-      document.execCommand('copy');
-      document.body.removeChild(el);
-    }
+    await copyText(this.text());
     this.copied.set(true);
     setTimeout(() => this.copied.set(false), 1500);
   }

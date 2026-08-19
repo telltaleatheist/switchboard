@@ -3,6 +3,8 @@
  * Every handler validates loudly and returns a plain JSON result.
  */
 
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import {
   API_VERSION,
   MAX_BODY_CHARS,
@@ -107,6 +109,49 @@ const getVersion = (ctx: Ctx): Result => ({
   // recorded at join to detect "new world" deterministically.
   body: { api: API_VERSION, server: SERVER_VERSION, instance: ctx.store.getInstanceId() },
 });
+
+/**
+ * Where the agent skill file lives, relative to this compiled module. The
+ * layout is deliberately the same in both modes, so no CLI flag is needed:
+ *
+ *   dev:      <repo>/server/dist        -> <repo>/skill/SKILL.md
+ *   packaged: <resources>/server/dist   -> <resources>/skill/SKILL.md
+ *
+ * (electron-builder ships `skill/` as extraResources for exactly this.) The
+ * third candidate covers the compiled tests, which run from
+ * server/build-test/src — one directory deeper than dist.
+ */
+const SKILL_PATH_CANDIDATES = [
+  path.resolve(__dirname, '..', '..', 'skill', 'SKILL.md'),
+  path.resolve(__dirname, '..', '..', '..', 'skill', 'SKILL.md'),
+];
+
+/**
+ * Hands out the switchboard skill file as plain markdown, unauthenticated.
+ *
+ * This is how a new agent machine installs the skill in one command instead
+ * of hunting for the repo — the console shows the curl line next to the join
+ * block. Public on purpose: it is documentation (the same file is in the
+ * public repo), it carries no secrets, and requiring a credential would only
+ * make bootstrapping harder for the machine that has nothing yet.
+ */
+const getSkill = (_ctx: Ctx, req: Req): Result => {
+  assertNoUnknownQuery(req.query, []);
+  for (const candidate of SKILL_PATH_CANDIDATES) {
+    let text: string;
+    try {
+      text = fs.readFileSync(candidate, 'utf8');
+    } catch {
+      continue;
+    }
+    return {
+      status: 200,
+      body: text,
+      contentType: 'text/markdown; charset=utf-8',
+    };
+  }
+  throw notFound('this build does not ship the skill file');
+};
 
 /**
  * Enrollment. The join key is the only credential accepted here (checked by
@@ -668,6 +713,8 @@ const postPurge = (ctx: Ctx, req: Req): Result => {
 
 export const ROUTES: readonly Route[] = [
   { method: 'GET', pattern: '/v1/version', auth: 'none', handler: getVersion },
+  // Public documentation, not data: the skill file every agent installs.
+  { method: 'GET', pattern: '/v1/skill', auth: 'none', handler: getSkill },
   // 'none' at the router level: the handler validates the join key itself.
   { method: 'POST', pattern: '/v1/join', auth: 'none', handler: postJoin },
 

@@ -105,6 +105,7 @@ Agent-token endpoints:
 | Method/path | Body → Response |
 |---|---|
 | `GET /v1/version` | (no auth) → `{api:1, server:"0.1.0", instance:"sw_i_<hex>"}` — `instance` is the EPOCH: minted at a data dir's first boot, constant forever after, different after any rebuild. Agents record it at join; stale-token 401s carry it so a rebuild is detected deterministically, never socially |
+| `GET /v1/skill` | (no auth) → the agent skill file, `text/markdown` verbatim. The ONLY non-JSON response in the API (`Result.contentType` is the escape hatch that makes it possible). Served so a new agent machine installs the skill with one curl instead of hunting for the repo — the console shows that command above the join block. Public deliberately: it is documentation, carries no secrets, and the machine fetching it has no credential yet. Resolved as `<one level above server/dist>/skill/SKILL.md`, which is the repo layout in dev and `resources/skill/` when packaged (electron-builder `extraResources`); 404 if a build ships without it. |
 | `POST /v1/join` | (auth: **join key** as `Bearer sw_j_…`) `{name}` (proposed slug) → 201 `{agent:"<canonical>", token:"sw_a_…", created_at, instance}`. **The server dedupes silently**: if the proposed name is held by a LIVE agent, it appends `-2`, `-3`, … and returns the first free name as `agent` — no failure mode, no retry loop. Deleted names are free (see attribution snapshots). 401 on a wrong/rotated join key. |
 | `GET /v1/agents/me` | → `{agent, channels:[{name, last_seq, members:[names]}], line_seq, instance}` (`agent` is always the CURRENT canonical name — a renamed agent re-learns its name here) |
 | `GET /v1/agents/me/line?since=N[&wait=S]` | → `{frames:[LineFrame], line_seq}` — HTTP long-poll twin of the control-line WS (same frames, same cursor; invite `token` injected with the caller's own). Exists because some client harnesses cannot open a WS to this host at all: the Monitor tool refuses private-range addresses (RFC1918/CGNAT/link-local) whether literal IP or hostname — only loopback passes. `wait` ≤ 60 s. Upgrade requests never reach the router, so the path serves both. |
@@ -256,6 +257,18 @@ window.switchboard = {
   a plain browser for dev) fall back to `localStorage`
   (`switchboard.baseUrl`, `switchboard.operatorToken`) and show a small
   banner saying so. Missing config = visible error state, never silent.
+- **First-run setup, above the join block**: a "Connecting an agent — start
+  here" card carrying the two steps a new operator has no way to guess.
+  Step 1 is the skill file — where it goes on the agent's machine
+  (`~/.claude/skills/switchboard/SKILL.md`, or
+  `%USERPROFILE%\.claude\skills\switchboard\SKILL.md`; the name `SKILL.md`
+  is not optional, a skill under any other filename is silently never
+  loaded) and a copyable one-liner per platform that installs it from this
+  server's own `GET /v1/skill`. Step 2 points at the join block below it.
+  Shown expanded while the roster is empty, then collapsed behind a
+  show/hide toggle — instructions for the first run, not furniture forever.
+  Without step 1 the join block is meaningless to the receiving session,
+  which is exactly the failure a new user cannot diagnose.
 - Panes (SPEC §11): Agents (ONE universal join block leading with the
   operator's configured DNS name when set — editable/clearable inline,
   persisted server-side via /v1/advertised-host — else the primary IP;

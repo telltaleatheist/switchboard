@@ -7,6 +7,7 @@ import { ConfirmService } from '../../core/confirm.service';
 import { startPolling } from '../../core/polling';
 import { BootstrapBlock } from '../../shared/bootstrap-block/bootstrap-block';
 import { RelativeTimePipe } from '../../shared/relative-time.pipe';
+import { SkillSetup } from '../../shared/skill-setup/skill-setup';
 
 interface IssuedToken {
   agentName: string;
@@ -15,7 +16,7 @@ interface IssuedToken {
 
 @Component({
   selector: 'app-agents-page',
-  imports: [FormsModule, BootstrapBlock, RelativeTimePipe],
+  imports: [FormsModule, BootstrapBlock, RelativeTimePipe, SkillSetup],
   templateUrl: './agents.page.html',
   styleUrl: './agents.page.css',
 })
@@ -41,6 +42,13 @@ export class AgentsPage implements OnInit, OnDestroy {
   protected readonly hostError = signal<string | null>(null);
   protected readonly savingHost = signal(false);
 
+  /**
+   * Setup instructions: forced open until the first agent has joined (a new
+   * operator lands here and needs to be told about the skill file), then
+   * collapsed behind a toggle so it stops taking space on every visit.
+   */
+  protected readonly setupOpen = signal(false);
+
   protected readonly issuedToken = signal<IssuedToken | null>(null);
   protected readonly reissuingName = signal<string | null>(null);
   protected readonly deletingName = signal<string | null>(null);
@@ -51,6 +59,11 @@ export class AgentsPage implements OnInit, OnDestroy {
   protected readonly savingRename = signal(false);
 
   private stopPolling?: () => void;
+
+  /** Whether the setup steps are showing — unconditionally, until someone joins. */
+  protected showSetup(): boolean {
+    return this.setupOpen() || this.agents().length === 0;
+  }
 
   ngOnInit(): void {
     void this.refresh();

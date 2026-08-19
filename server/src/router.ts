@@ -22,6 +22,12 @@ export interface Result {
   status: number;
   body: unknown;
   headers?: Record<string, string>;
+  /**
+   * Set ONLY by handlers that serve something other than JSON (today: the
+   * skill file, as markdown). When present, `body` must be a string and is
+   * written verbatim under this Content-Type instead of being JSON-encoded.
+   */
+  contentType?: string;
 }
 
 export type Handler = (ctx: Ctx, req: Req) => Result | Promise<Result>;

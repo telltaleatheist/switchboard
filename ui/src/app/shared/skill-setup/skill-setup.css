@@ -1,0 +1,82 @@
+.steps {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.steps li::marker {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.step-head {
+  margin: 0 0 0.25rem;
+  font-weight: 600;
+}
+
+.hint {
+  margin: 0.35rem 0;
+}
+
+.platform-tabs {
+  display: flex;
+  gap: 0.4rem;
+  margin: 0.6rem 0 0.5rem;
+}
+
+/* Creamsicle selected-option treatment: accent border plus a wash of the
+   accent, no separate indicator. */
+.platform-tabs button.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--text);
+}
+
+.destination {
+  margin: 0 0 0.6rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-inset);
+  display: inline-block;
+  font-size: 0.85rem;
+}
+
+.cmd {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-inset);
+  overflow: hidden;
+}
+
+.cmd-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.35rem 0.6rem;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+}
+
+.cmd-label {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.block {
+  margin: 0;
+  padding: 0.75rem 0.9rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text);
+}
+
+.copy-btn {
+  font-size: 0.75rem;
+  padding: 0.2rem 0.6rem;
+}

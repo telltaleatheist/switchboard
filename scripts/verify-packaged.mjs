@@ -166,6 +166,16 @@ try {
   console.log(`[verify-packaged] GET /v1/version -> ${res.status} ${body}`);
   if (res.status !== 200) throw new Error(`/v1/version returned ${res.status}`);
 
+  // The skill file ships as extraResources and is resolved relative to
+  // server/dist — a layout only a packaged build exercises, so the unit
+  // tests cannot catch it going missing. A new operator's very first step
+  // depends on this endpoint answering.
+  const skill = await fetch(`http://127.0.0.1:${info.port}/v1/skill`);
+  const skillBody = await skill.text();
+  console.log(`[verify-packaged] GET /v1/skill -> ${skill.status} (${skillBody.length} bytes)`);
+  if (skill.status !== 200) throw new Error(`/v1/skill returned ${skill.status}`);
+  if (!skillBody.startsWith('---')) throw new Error('/v1/skill did not return the skill markdown');
+
   const auth = await fetch(`http://127.0.0.1:${info.port}/v1/agents`, {
     headers: { Authorization: `Bearer ${info.operatorToken}` },
   });

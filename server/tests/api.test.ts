@@ -68,6 +68,17 @@ test('GET /v1/version needs no auth and reports the frozen api version', async (
   assert.match(res.json.instance, /^sw_i_[0-9a-f]{16}$/);
 });
 
+test('GET /v1/skill serves the agent skill file as markdown, unauthenticated', async () => {
+  // Fetched directly rather than via call(): this is the one endpoint whose
+  // response body is markdown, not JSON.
+  const res = await fetch(`http://127.0.0.1:${h.port}/v1/skill`);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type') ?? '', /^text\/markdown/);
+  const text = await res.text();
+  assert.match(text, /^---\r?\nname: switchboard\r?\n/);
+  assert.match(text, /## 1\. Parse the bootstrap block/);
+});
+
 test('unknown endpoints 404 and wrong methods 405', async () => {
   const missing = await call(h, 'GET', '/v1/nope');
   assert.equal(missing.status, 404);

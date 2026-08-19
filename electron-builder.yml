@@ -53,6 +53,12 @@ extraResources:
   # buildResources/icon.png.
   - from: build-resources/icon.png
     to: icon.png
+  # The agent skill file, served by the server at GET /v1/skill so a new
+  # agent machine can install it with one curl. server/src/routes.ts resolves
+  # it as <resources>/skill/SKILL.md — the same relative layout as the repo,
+  # which is why no CLI flag is involved.
+  - from: skill
+    to: skill
 
 asar: true
 

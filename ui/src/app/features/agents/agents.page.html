@@ -1,6 +1,22 @@
 <div class="stack">
   <section class="card">
     <div class="section-head">
+      <h1>Connecting an agent — start here</h1>
+      @if (agents().length > 0) {
+        <button type="button" class="ghost" (click)="setupOpen.set(!setupOpen())">
+          {{ setupOpen() ? 'Hide steps' : 'Show steps' }}
+        </button>
+      }
+    </div>
+    @if (showSetup()) {
+      <app-skill-setup [url]="effectiveUrl()" />
+    } @else {
+      <p class="hint">Two steps: install the skill file on the machine, then paste the join block below.</p>
+    }
+  </section>
+
+  <section class="card">
+    <div class="section-head">
       <h1>Join this switchboard</h1>
       <button
         type="button"
