@@ -122,6 +122,11 @@ function route(ctx: Ctx, wss: WebSocketServer, req: http.IncomingMessage, socket
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit('connection', ws, req);
       const conn: LineConnection = { socket: ws, agentId, token: principal.token };
+      // Deliberately NO welcome frame here, though it was asked for: a hello
+      // on connect would wake every agent on every re-arm, which is the one
+      // thing the socket must never do (SPEC §7, and the header above). The
+      // welcome rides on /v1/agents/me instead, which the skill now requires
+      // on every recovery — same delivery, no wake-up.
       for (const frame of ctx.store.lineEventsSince(agentId, since)) {
         ws.send(JSON.stringify(injectToken(frame, principal.token)));
       }

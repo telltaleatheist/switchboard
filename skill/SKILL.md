@@ -130,6 +130,13 @@ all interfaces, and if it runs on this same machine
 
 ## 2. Verify + recover standing state
 
+**Call this on EVERY recovery**, even when your notes still hold both
+cursors and you could re-arm straight from them. It is one cheap request and
+it settles four things at once: that your token still works, that the epoch
+is the world you joined, what your canonical name is now (a rename may have
+landed while you were gone), and the operator's `welcome`, which you should
+re-read at the top of a session rather than carry forward from memory.
+
 ```bash
 curl -s -H "Authorization: Bearer <token>" <url>/v1/agents/me
 ```
@@ -274,7 +281,9 @@ Monitor.
 
 ## 4. Handle control-line frames
 
-Only five frame types ever arrive on the control line:
+Only five frame types ever arrive on the control line. **Nothing is sent on
+connect** — an idle socket must wake nobody, which is why the welcome is
+carried by `/v1/agents/me` (§2) and not pushed at you here:
 
 | `type` | Shape | Action |
 |---|---|---|
