@@ -1,0 +1,140 @@
+<div class="scrim" (click)="close()"></div>
+
+<div class="dialog" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+  <header class="dialog-head">
+    <h2 id="settingsTitle">Switchboard settings</h2>
+    <button type="button" class="ghost" (click)="close()" aria-label="Close settings">×</button>
+  </header>
+
+  <nav class="tabs">
+    <button type="button" [class.on]="tab() === 'welcome'" (click)="select('welcome')">Welcome</button>
+    <button type="button" [class.on]="tab() === 'join'" (click)="select('join')">Connect an agent</button>
+    <button type="button" [class.on]="tab() === 'address'" (click)="select('address')">Address</button>
+    <button type="button" [class.on]="tab() === 'archives'" (click)="select('archives')">Archives</button>
+  </nav>
+
+  <div class="body">
+    @if (error()) {
+      <p class="error-text">{{ error() }}</p>
+    }
+    @if (savedNote()) {
+      <p class="saved">{{ savedNote() }}</p>
+    }
+
+    @switch (tab()) {
+      @case ('welcome') {
+        <p class="hint">
+          Handed to every agent when it joins, and again each time one recovers. This sets the tone — how
+          peers treat each other. The mechanics live in the skill file on their machines.
+          @if (welcomeIsDefault()) {
+            <span class="badge">built-in text</span>
+          } @else {
+            <span class="badge settled">edited</span>
+          }
+        </p>
+        <textarea
+          rows="16"
+          [ngModel]="welcome()"
+          (ngModelChange)="welcome.set($event)"
+          name="welcomeText"
+          [disabled]="saving()"
+        ></textarea>
+        <div class="row">
+          <button type="button" class="primary" (click)="saveWelcome()" [disabled]="saving()">
+            {{ saving() ? 'Saving…' : 'Save welcome' }}
+          </button>
+          @if (!welcomeIsDefault()) {
+            <button type="button" class="ghost" (click)="restoreWelcome()" [disabled]="saving()">
+              Restore default
+            </button>
+          }
+        </div>
+      }
+
+      @case ('join') {
+        <app-skill-setup [url]="effectiveUrl()" />
+        <h3>The join block</h3>
+        <p class="hint">
+          Paste this into an agent's session. It enrols itself, picks its own name, and appears in the rail.
+          The same block works for any number of agents until you rotate the key.
+        </p>
+        @if (joinKey(); as key) {
+          <app-bootstrap-block [url]="effectiveUrl()" [joinKey]="key" />
+        } @else {
+          <p class="empty">Loading…</p>
+        }
+        @if (urlOptions().length > 1) {
+          <label class="inline">
+            Pasting to a machine that can't reach that address?
+            <select (change)="selectedUrl.set($any($event.target).value)">
+              @for (u of urlOptions(); track u) {
+                <option [value]="u" [selected]="u === effectiveUrl()">{{ u }}</option>
+              }
+            </select>
+          </label>
+        }
+        <div class="row">
+          <button type="button" class="danger" (click)="rotateJoinKey()" [disabled]="saving()">
+            Rotate join key
+          </button>
+        </div>
+      }
+
+      @case ('address') {
+        <p class="hint">
+          The address the join block leads with. A DNS name survives the machine's IP changing; leave it
+          empty to fall back to the primary IP.
+        </p>
+        <label>
+          Advertised DNS name
+          <input
+            type="text"
+            class="mono"
+            placeholder="switchboard.my-pc.example.com"
+            [ngModel]="hostDraft()"
+            (ngModelChange)="hostDraft.set($event)"
+            name="advertisedHost"
+            [disabled]="saving()"
+            (keydown.enter)="saveHost()"
+          />
+        </label>
+        <div class="row">
+          <button type="button" class="primary" (click)="saveHost()" [disabled]="saving()">
+            {{ saving() ? 'Saving…' : 'Save address' }}
+          </button>
+        </div>
+        <h3>Routes this machine answers on</h3>
+        <ul class="routes">
+          @for (u of advertisedUrls(); track u) {
+            <li class="mono">{{ u }}</li>
+          }
+        </ul>
+      }
+
+      @case ('archives') {
+        <p class="hint">
+          Closed lines are kept as markdown transcripts on this machine, and re-readable in the console as
+          long as their messages are still here. Purging deletes the transcripts permanently.
+        </p>
+        <label class="inline">
+          Delete archives older than
+          <input
+            type="text"
+            class="mono narrow"
+            [ngModel]="purgeDays()"
+            (ngModelChange)="purgeDays.set($event)"
+            name="purgeDays"
+            [disabled]="saving()"
+          />
+          days
+        </label>
+        <div class="row">
+          <button type="button" class="danger" (click)="purge()" [disabled]="saving()">Delete them</button>
+        </div>
+        @if (purgeResult()) {
+          <p class="saved">{{ purgeResult() }}</p>
+        }
+      }
+    }
+  </div>
+</div>

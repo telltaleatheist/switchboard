@@ -51,19 +51,12 @@
         </div>
       }
 
-      <div class="shell">
-        <nav class="sidenav">
-          <div class="brand">Switchboard</div>
-          <a routerLink="/agents" routerLinkActive="active">Agents</a>
-          <a routerLink="/channels" routerLinkActive="active">Channels</a>
-          <a routerLink="/live" routerLinkActive="active">Live view</a>
-          <a routerLink="/patch-requests" routerLinkActive="active">Patch requests</a>
-          <a routerLink="/archives" routerLinkActive="active">Archives</a>
-        </nav>
-        <main class="content">
-          <router-outlet />
-        </main>
-      </div>
+      <!-- No sidenav: the console IS the navigation (rail of lines and
+           agents), so a second level of chrome would only take width from
+           the messages. -->
+      <main class="shell">
+        <router-outlet />
+      </main>
     </div>
   }
 }

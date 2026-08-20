@@ -183,6 +183,8 @@ export interface PatchRequestRow {
 
 export interface ArchiveRow {
   id: number;
+  /** Null on archives written before schema 7 — they have a transcript only. */
+  channel_id: number | null;
   channel_name: string;
   closed_at: string;
   reason: string;
@@ -825,17 +827,29 @@ export class Store {
 
   // -------------------------------------------------------------- archives
 
-  insertArchive(channelName: string, closedAt: string, reason: string, transcript: string): number {
+  insertArchive(
+    channelId: number,
+    channelName: string,
+    closedAt: string,
+    reason: string,
+    transcript: string,
+  ): number {
     const info = this.db
-      .prepare('INSERT INTO archives(channel_name, closed_at, reason, transcript) VALUES (?, ?, ?, ?)')
-      .run(channelName, closedAt, reason, transcript);
+      .prepare(
+        'INSERT INTO archives(channel_id, channel_name, closed_at, reason, transcript) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(channelId, channelName, closedAt, reason, transcript);
     return Number(info.lastInsertRowid);
   }
 
-  listArchives(): Omit<ArchiveRow, 'transcript'>[] {
+  listArchives(): (Omit<ArchiveRow, 'transcript'> & { message_count: number })[] {
     return this.db
-      .prepare('SELECT id, channel_name, closed_at, reason FROM archives ORDER BY id DESC')
-      .all() as Omit<ArchiveRow, 'transcript'>[];
+      .prepare(
+        `SELECT a.id, a.channel_id, a.channel_name, a.closed_at, a.reason,
+                (SELECT COUNT(*) FROM messages m WHERE m.channel_id = a.channel_id) AS message_count
+         FROM archives a ORDER BY a.id DESC`,
+      )
+      .all() as (Omit<ArchiveRow, 'transcript'> & { message_count: number })[];
   }
 
   getArchive(id: number): ArchiveRow | undefined {

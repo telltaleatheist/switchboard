@@ -50,6 +50,8 @@ export interface ChannelSummary {
   presence: MemberPresence[];
   last_seq: number;
   created_at: string;
+  /** ISO-8601 of the newest message, or null when nothing has been said. */
+  last_message_at: string | null;
   note: string | null;
 }
 
@@ -128,13 +130,18 @@ export interface PatchRequest {
 
 export interface ArchiveSummary {
   id: number;
+  /** Null on archives written before schema 7 — transcript only, no cards. */
+  channel_id: number | null;
   channel_name: string;
   closed_at: string;
   reason: string;
+  message_count: number;
 }
 
 export interface ArchiveDetail extends ArchiveSummary {
   transcript: string;
+  /** The same Message objects the live feed renders; empty for pre-v7 archives. */
+  messages: Message[];
 }
 
 export interface PurgeResponse {

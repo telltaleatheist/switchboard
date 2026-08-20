@@ -57,7 +57,7 @@ export function closeChannel(ctx: Ctx, channel: ChannelRow, reason: string): Clo
   const messages = ctx.store.messagesSince(channel.id, 0);
   const transcript = renderTranscript({ channel, members, messages, closedAt, reason });
 
-  const archiveId = ctx.store.insertArchive(channel.name, closedAt, reason, transcript);
+  const archiveId = ctx.store.insertArchive(channel.id, channel.name, closedAt, reason, transcript);
   const file = path.join(ctx.archiveDir, archiveFilename(archiveId, channel.name, closedAt));
   fs.writeFileSync(file, transcript, { encoding: 'utf8' });
 

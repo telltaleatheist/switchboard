@@ -1,0 +1,55 @@
+@if (msg(); as msg) {
+  <header class="head">
+    <span class="sender">{{ msg.sender }}</span>
+    <span class="arrow">→</span>
+    <span class="rcpt">{{ toLabel(msg.to) }}</span>
+    <span class="seq">#{{ msg.seq }}</span>
+    <span class="ts">{{ msg.ts | relativeTime }}</span>
+    @if (msg.in_reply_to !== null) {
+      <span class="reply">↩ {{ replyLabel(msg.in_reply_to) }}</span>
+    }
+    @if (msg.wake === false) {
+      <span class="badge">record only</span>
+    }
+    @if (msg.wake === 'digest') {
+      <span class="badge">digest</span>
+    }
+    @if (msg.signal) {
+      <span class="badge signal">{{ msg.signal }}</span>
+    }
+    @if (msg.state) {
+      <span
+        class="badge"
+        [class.settled]="msg.state === 'settled'"
+        [class.withdrawn]="msg.state === 'withdrawn'"
+        [class.superseded]="msg.state === 'superseded'"
+      >{{ msg.state }}</span>
+    }
+  </header>
+
+  @if (msg.subject; as subject) {
+    <div class="subject">{{ subject }}</div>
+    <!-- Older operator messages duplicated their single line into both fields. -->
+    @if (msg.body.trim() !== subject.trim()) {
+      <p class="body">{{ msg.body }}</p>
+    }
+  } @else {
+    <p class="body">{{ msg.body }}</p>
+  }
+
+  @if (msg.attachments; as files) {
+    <div class="attachments">
+      @for (f of files; track f.id) {
+        @if (isImage(f)) {
+          <a class="shot" [href]="blobUrl(f.id)" target="_blank" rel="noopener">
+            <img [src]="blobUrl(f.id)" [alt]="f.name ?? 'attachment'" />
+          </a>
+        } @else {
+          <a class="file" [href]="blobUrl(f.id)" target="_blank" rel="noopener">
+            {{ f.name ?? f.media_type }} <span class="dim">({{ sizeLabel(f.bytes) }})</span>
+          </a>
+        }
+      }
+    </div>
+  }
+}

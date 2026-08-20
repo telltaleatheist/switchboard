@@ -90,7 +90,7 @@ idempotency(key TEXT, agent_id, result_json, created_at,
             UNIQUE(key, agent_id))
 patch_requests(id INTEGER PK, requester_id, with_json, purpose,
                status TEXT, created_at TEXT)             -- pending|approved|denied
-archives(id INTEGER PK, channel_name, closed_at, reason, transcript TEXT)
+archives(id INTEGER PK, channel_id, channel_name, closed_at, reason, transcript TEXT)
 blobs(id TEXT PK, media_type, bytes INTEGER, name TEXT, created_at TEXT)   -- id = sha256 of the bytes
 ```
 

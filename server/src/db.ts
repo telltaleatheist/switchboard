@@ -9,7 +9,7 @@ import * as path from 'node:path';
 
 export type Db = Database.Database;
 
-export const SCHEMA_VERSION = '6';
+export const SCHEMA_VERSION = '7';
 export const DB_FILENAME = 'switchboard.db';
 export const ARCHIVE_DIRNAME = 'archives';
 
@@ -99,6 +99,9 @@ CREATE TABLE IF NOT EXISTS patch_requests (
 
 CREATE TABLE IF NOT EXISTS archives (
   id           INTEGER PRIMARY KEY,
+  -- The closed channel's row id. Its messages are never deleted, so this is
+  -- what lets the console render an archive as cards rather than markdown.
+  channel_id   INTEGER,
   channel_name TEXT NOT NULL,
   closed_at    TEXT NOT NULL,
   reason       TEXT NOT NULL,
@@ -180,6 +183,16 @@ const MIGRATIONS: Record<string, (db: Db) => string> = {
     db.exec('UPDATE messages SET reply_to_json = json_array(in_reply_to) WHERE in_reply_to IS NOT NULL');
     db.exec('ALTER TABLE messages ADD COLUMN wake INTEGER NOT NULL DEFAULT 1');
     return '5';
+  },
+  '6': (db) => {
+    // Archives learn their channel id. Old rows keep NULL: their transcript is
+    // still there, they simply cannot be re-rendered as cards.
+    db.exec('ALTER TABLE archives ADD COLUMN channel_id INTEGER');
+    db.exec(
+      "UPDATE archives SET channel_id = (SELECT c.id FROM channels c" +
+        " WHERE c.name = archives.channel_name AND c.closed_at = archives.closed_at)",
+    );
+    return '7';
   },
   '5': (db) => {
     // Attachments: evidence travels instead of descriptions of evidence.

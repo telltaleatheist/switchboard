@@ -1,0 +1,420 @@
+<div class="console">
+  <!-- ---------------------------------------------------------- left rail -->
+  <nav class="rail">
+    <div class="rail-group">
+      <div class="rail-head">
+        <h3>Open lines</h3>
+        <button type="button" class="ghost tiny" (click)="startNewLine()" title="Open a new line">+</button>
+      </div>
+      @if (channels().length === 0) {
+        <p class="empty tiny">No lines open.</p>
+      }
+      @for (ch of channels(); track ch.name) {
+        <button
+          type="button"
+          class="rail-item"
+          [class.active]="selection().kind === 'channel' && openChannel()?.name === ch.name"
+          (click)="openLine(ch.name)"
+        >
+          <span class="pdot" [class.on]="anyConnected(ch)"></span>
+          <span class="label">{{ ch.name }}</span>
+          <span class="count">{{ ch.last_seq }}</span>
+        </button>
+      }
+    </div>
+
+    @if (archives().length > 0) {
+      <div class="rail-group">
+        <h3>Archived</h3>
+        @for (a of archives(); track a.id) {
+          <button
+            type="button"
+            class="rail-item archived"
+            [class.active]="selection().kind === 'archive' && selectedArchive()?.id === a.id"
+            (click)="openArchive(a)"
+          >
+            <span class="pdot"></span>
+            <span class="label">{{ a.channel_name }}</span>
+            <span class="count">{{ a.message_count }}</span>
+          </button>
+        }
+      </div>
+    }
+
+    <div class="rail-group">
+      <h3>Agents · {{ onlineCount() }} online</h3>
+      @if (agents().length === 0) {
+        <p class="empty tiny">Nobody has joined yet.</p>
+      }
+      @for (agent of agents(); track agent.name) {
+        <div class="agent-row">
+          @if (renamingAgent() === agent.name) {
+            <input
+              type="text"
+              class="mono rename"
+              [ngModel]="renameValue()"
+              (ngModelChange)="renameValue.set($event)"
+              name="renameValue"
+              (keydown.enter)="saveRename(agent.name)"
+              (keydown.escape)="renamingAgent.set(null)"
+            />
+          } @else {
+            <span class="pdot" [class.on]="agent.connected"></span>
+            <span class="label mono">{{ agent.name }}</span>
+            <span class="agent-actions">
+              <button type="button" class="ghost tiny" (click)="startRename(agent)" title="Rename">ren</button>
+              <button type="button" class="ghost tiny" (click)="reissue(agent.name)" title="Reissue token">tok</button>
+              <button type="button" class="ghost tiny danger" (click)="deleteAgent(agent.name)" title="Delete">×</button>
+            </span>
+          }
+        </div>
+      }
+    </div>
+  </nav>
+
+  <!-- ------------------------------------------------------------- centre -->
+  <section class="centre">
+    <header class="topbar">
+      @if (selection().kind === 'none') {
+        <span class="chan-name">Switchboard</span>
+        <span class="dim">Pick a line on the left</span>
+      } @else if (openChannel(); as ch) {
+        <span class="chan-name">{{ ch.name }}</span>
+        <span class="badge dot" [class.online]="wsStatus() === 'open'" [class.offline]="wsStatus() !== 'open'">
+          {{ wsStatus() === 'open' ? 'live' : wsStatus() }}
+        </span>
+        @if (ch.note) {
+          <span class="dim note">{{ ch.note }}</span>
+        }
+        @if (wsStatus() === 'closed' || wsStatus() === 'error') {
+          <button type="button" class="tiny" (click)="reconnect()">Reconnect</button>
+        }
+        @if (shutdownNotice()) {
+          <span class="badge signal">server shutting down</span>
+        }
+      } @else if (selectedArchive(); as ar) {
+        <span class="chan-name">{{ ar.channel_name }}</span>
+        <span class="badge">archived {{ ar.closed_at | relativeTime }}</span>
+        <span class="dim note">{{ ar.reason === 'idle-expiry' ? 'closed by idle expiry' : 'closed' }}</span>
+      }
+
+      <span class="spacer"></span>
+
+      @if (patchRequests().length > 0) {
+        <button type="button" class="tiny pending" (click)="showPatchRequests.set(true)">
+          {{ patchRequests().length }} patch request{{ patchRequests().length === 1 ? '' : 's' }}
+        </button>
+      }
+      <button type="button" class="tiny" (click)="settingsTab.set('join')">Connect an agent</button>
+      <button type="button" class="ghost tiny" (click)="settingsTab.set('welcome')">Settings</button>
+    </header>
+
+    @if (loadError()) {
+      <p class="error-text bar">{{ loadError() }}</p>
+    }
+
+    @if (selection().kind !== 'none') {
+      <div class="filters">
+        <label>
+          from
+          <select [ngModel]="filterFrom()" (ngModelChange)="filterFrom.set($event)" name="filterFrom">
+            <option value="">anyone</option>
+            @for (s of senders(); track s) {
+              <option [value]="s">{{ s }}</option>
+            }
+          </select>
+        </label>
+        <label>
+          to
+          <select [ngModel]="filterTo()" (ngModelChange)="filterTo.set($event)" name="filterTo">
+            <option value="">anyone</option>
+            <option value="*everyone*">everyone (unaddressed)</option>
+            @for (m of openChannel()?.members ?? []; track m) {
+              <option [value]="m">{{ m }}</option>
+            }
+          </select>
+        </label>
+        <input
+          type="text"
+          class="search"
+          placeholder="search subjects and bodies…"
+          [ngModel]="filterText()"
+          (ngModelChange)="filterText.set($event)"
+          name="filterText"
+        />
+        @if (filtersActive()) {
+          <span class="match">{{ visibleMessages().length }} of {{ messages().length }}</span>
+          <button type="button" class="ghost tiny" (click)="clearFilters()">clear</button>
+        } @else {
+          <span class="match">{{ messages().length }} shown</span>
+        }
+      </div>
+    }
+
+    <div class="feed" #scrollArea (scroll)="onScroll()">
+      @if (selection().kind === 'none') {
+        <p class="empty">
+          Open lines and archived ones are in the rail. Everything you configure is behind the gear.
+        </p>
+      } @else if (loadingArchive()) {
+        <p class="empty">Loading the transcript…</p>
+      } @else if (messages().length === 0) {
+        <p class="empty">
+          {{ selection().kind === 'archive' ? 'This archive predates message storage — transcript only.' : 'Nothing said yet.' }}
+        </p>
+      } @else if (visibleMessages().length === 0) {
+        <p class="empty">Nothing matches that filter.</p>
+      } @else {
+        @for (m of visibleMessages(); track m.seq) {
+          <app-message-card [message]="m" />
+        }
+      }
+    </div>
+
+    @if (openChannel(); as ch) {
+      <form class="compose" (ngSubmit)="send()">
+        <div class="compose-meta">
+          <span class="as">Send as <strong>operator</strong></span>
+          <select [ngModel]="recipient()" (ngModelChange)="recipient.set($event)" name="recipient" [disabled]="sending()">
+            <option value="">to: everyone</option>
+            @for (m of ch.members; track m) {
+              <option [value]="m">to: {{ m }} only</option>
+            }
+          </select>
+          <input
+            type="text"
+            class="subject"
+            placeholder="Subject (optional)"
+            [ngModel]="composeSubject()"
+            (ngModelChange)="composeSubject.set($event)"
+            name="composeSubject"
+            [disabled]="sending()"
+            (keydown.enter)="onEnter($event)"
+          />
+        </div>
+
+        @if (pendingAttachments().length > 0) {
+          <div class="pending-attachments">
+            @for (f of pendingAttachments(); track f.id) {
+              <span class="pending">
+                @if (isImage(f)) {
+                  <img [src]="blobUrl(f.id)" [alt]="f.name ?? 'attachment'" />
+                }
+                {{ f.name ?? f.media_type }}
+                <button type="button" class="ghost tiny" (click)="dropAttachment(f.id)" title="Remove">×</button>
+              </span>
+            }
+          </div>
+        }
+
+        <div class="compose-row">
+          <label class="attach" [class.busy]="uploading()" title="Attach a screenshot or log">
+            {{ uploading() ? 'Uploading…' : 'Attach' }}
+            <input type="file" multiple (change)="onFilesPicked($event)" [disabled]="uploading() || sending()" />
+          </label>
+          <textarea
+            rows="2"
+            placeholder="Message the line — enter sends, shift+enter for a new line"
+            [ngModel]="composeText()"
+            (ngModelChange)="composeText.set($event)"
+            name="composeText"
+            [disabled]="sending()"
+            (keydown.enter)="onEnter($event)"
+          ></textarea>
+          <button type="submit" class="primary" [disabled]="sending() || uploading() || !composeText().trim()">
+            {{ sending() ? 'Sending…' : 'Send' }}
+          </button>
+        </div>
+        @if (sendError()) {
+          <p class="error-text">{{ sendError() }}</p>
+        }
+      </form>
+    }
+  </section>
+
+  <!-- ---------------------------------------------------------- inspector -->
+  <aside class="inspector">
+    @if (openChannel(); as ch) {
+      <div class="panel">
+        <h3>Members</h3>
+        @for (m of ch.members; track m) {
+          <div class="member">
+            <span class="pdot" [class.on]="memberPresence(ch, m)"></span>
+            <span class="mono name">{{ m }}</span>
+            <span class="seen">
+              @if (memberPresence(ch, m)) { now } @else if (lastSeen(ch, m); as seen) {
+                {{ seen | relativeTime }}
+              } @else { never }
+            </span>
+            <button
+              type="button"
+              class="ghost tiny"
+              (click)="removeMember(ch.name, m)"
+              [disabled]="busy() === 'remove:' + m"
+              title="Unpatch {{ m }}"
+            >×</button>
+          </div>
+        }
+        @if (nonMembers(ch).length > 0) {
+          <label class="add">
+            Patch in
+            <select #addSel (change)="addMember(ch.name, addSel.value); addSel.value = ''">
+              <option value="">choose an agent…</option>
+              @for (a of nonMembers(ch); track a.name) {
+                <option [value]="a.name">{{ a.name }}</option>
+              }
+            </select>
+          </label>
+        }
+      </div>
+
+      <div class="panel">
+        <h3>Line</h3>
+        <div class="stat"><span>messages</span><span>{{ ch.last_seq }}</span></div>
+        <div class="stat">
+          <span>last activity</span>
+          <span>{{ ch.last_message_at ? (ch.last_message_at | relativeTime) : '—' }}</span>
+        </div>
+        <div class="stat"><span>opened</span><span>{{ ch.created_at | relativeTime }}</span></div>
+        <button
+          type="button"
+          class="danger full"
+          (click)="closeLine(ch.name)"
+          [disabled]="busy() === 'close'"
+        >
+          {{ busy() === 'close' ? 'Closing…' : 'Close this line' }}
+        </button>
+      </div>
+    } @else if (selectedArchive(); as ar) {
+      <div class="panel">
+        <h3>Archived line</h3>
+        <div class="stat"><span>messages</span><span>{{ ar.message_count }}</span></div>
+        <div class="stat"><span>closed</span><span>{{ ar.closed_at | relativeTime }}</span></div>
+        <div class="stat"><span>reason</span><span>{{ ar.reason }}</span></div>
+        <p class="hint">
+          Read-only, and rendered exactly as the live feed renders it — same cards, same colours, same
+          addressing.
+        </p>
+      </div>
+    } @else {
+      <div class="panel">
+        <h3>Switchboard</h3>
+        <div class="stat"><span>lines open</span><span>{{ channels().length }}</span></div>
+        <div class="stat"><span>agents</span><span>{{ agents().length }}</span></div>
+        <div class="stat"><span>online</span><span>{{ onlineCount() }}</span></div>
+        <div class="stat"><span>archived</span><span>{{ archives().length }}</span></div>
+        <button type="button" class="full" (click)="settingsTab.set('join')">Connect an agent</button>
+      </div>
+    }
+  </aside>
+</div>
+
+<!-- ------------------------------------------------------------- dialogs -->
+@if (settingsTab(); as tab) {
+  <app-settings-dialog [tab]="tab" (closed)="settingsTab.set(null)" />
+}
+
+@if (issuedToken(); as issued) {
+  <div class="overlay">
+    <div class="scrim" (click)="issuedToken.set(null)"></div>
+    <div class="mini" role="dialog" aria-modal="true">
+      <h2>New token for {{ issued.agent }}</h2>
+      <p class="hint warning">Shown once. Copy it now — paste it into that agent's session.</p>
+      <pre class="token">{{ issued.token }}</pre>
+      <div class="row end">
+        <button type="button" class="primary" (click)="issuedToken.set(null)">Done</button>
+      </div>
+    </div>
+  </div>
+}
+
+@if (creatingLine()) {
+  <div class="overlay">
+    <div class="scrim" (click)="creatingLine.set(false)"></div>
+    <div class="mini" role="dialog" aria-modal="true">
+      <h2>Open a line</h2>
+      <label>
+        Name
+        <input
+          type="text"
+          placeholder="bookforge-sync"
+          [ngModel]="newLineName()"
+          (ngModelChange)="newLineName.set($event)"
+          name="newLineName"
+        />
+      </label>
+      <label>
+        Patch in
+        @if (agents().length === 0) {
+          <span class="empty tiny">No agents have joined yet.</span>
+        } @else {
+          <div class="member-picker">
+            @for (a of agents(); track a.name) {
+              <button
+                type="button"
+                class="member-option"
+                [class.selected]="newLineMembers().has(a.name)"
+                (click)="toggleNewLineMember(a.name)"
+              >
+                <span class="pdot" [class.on]="a.connected"></span> {{ a.name }}
+              </button>
+            }
+          </div>
+        }
+      </label>
+      <label>
+        Note (optional)
+        <input
+          type="text"
+          placeholder="what this collaboration is for"
+          [ngModel]="newLineNote()"
+          (ngModelChange)="newLineNote.set($event)"
+          name="newLineNote"
+        />
+      </label>
+      @if (createError()) {
+        <p class="error-text">{{ createError() }}</p>
+      }
+      <div class="row end">
+        <button type="button" class="ghost" (click)="creatingLine.set(false)">Cancel</button>
+        <button
+          type="button"
+          class="primary"
+          (click)="createLine()"
+          [disabled]="busy() === 'create' || !newLineName().trim() || newLineMembers().size === 0"
+        >
+          {{ busy() === 'create' ? 'Opening…' : 'Open line' }}
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
+@if (showPatchRequests()) {
+  <div class="overlay">
+    <div class="scrim" (click)="showPatchRequests.set(false)"></div>
+    <div class="mini" role="dialog" aria-modal="true">
+      <h2>Patch requests</h2>
+      <p class="hint">Agents asking to be patched together. Approving opens a line between them.</p>
+      @for (r of patchRequests(); track r.id) {
+        <div class="patch">
+          <div>
+            <span class="mono">{{ r.requester }} → {{ r.with.join(', ') }}</span>
+            <p class="purpose">{{ r.purpose }}</p>
+          </div>
+          <div class="row">
+            <button type="button" class="primary tiny" (click)="approvePatch(r.id)" [disabled]="busy() === 'patch:' + r.id">
+              Approve
+            </button>
+            <button type="button" class="tiny" (click)="denyPatch(r.id)" [disabled]="busy() === 'patch:' + r.id">
+              Deny
+            </button>
+          </div>
+        </div>
+      }
+      <div class="row end">
+        <button type="button" class="ghost" (click)="showPatchRequests.set(false)">Close</button>
+      </div>
+    </div>
+  </div>
+}

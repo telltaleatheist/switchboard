@@ -839,7 +839,12 @@ const getArchive = (ctx: Ctx, req: Req): Result => {
   if (!/^\d+$/.test(raw)) throw badRequest(`archive id must be an integer (got '${raw}')`);
   const row = ctx.store.getArchive(Number(raw));
   if (!row) throw notFound(`unknown archive ${raw}`);
-  return { status: 200, body: row };
+  // The messages too, not just the transcript: the console renders a closed
+  // line with the same cards as a live one, so "who said what to whom" reads
+  // identically whether the channel ended an hour ago or last month. Archives
+  // written before schema 7 have no channel_id and fall back to transcript.
+  const messages = row.channel_id === null ? [] : ctx.store.messagesSince(row.channel_id, 0);
+  return { status: 200, body: { ...row, messages } };
 };
 
 const postPurge = (ctx: Ctx, req: Req): Result => {
