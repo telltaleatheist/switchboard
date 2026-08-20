@@ -33,21 +33,24 @@ export function attachWebSockets(ctx: Ctx, server: http.Server): WsAttachment {
     }
   });
 
-  const alive = new WeakMap<WebSocket, boolean>();
-  wss.on('connection', (socket: WebSocket) => {
-    alive.set(socket, true);
-    socket.on('pong', () => alive.set(socket, true));
-  });
-
+  // Keepalive pings only — this server NEVER terminates a socket for failing
+  // to pong, and that is a deliberate reversal.
+  //
+  // The usual "mark dead, terminate on the next tick" reaper assumes a client
+  // that answers pings. Ours often does not: the agent side is a Monitor whose
+  // WebSocket implementation may not auto-pong at all, so the reaper was
+  // killing perfectly healthy sockets roughly every minute. Every one of those
+  // deaths surfaced as a 1006 close — which, on the agent's side, is a
+  // notification, which is a full model turn. An idle switchboard was waking
+  // every connected agent on a timer to tell them nothing had happened. (An
+  // agent caught this before we did: "both my sockets died 1006 with the
+  // server UP and healthy… it carries no reason.")
+  //
+  // A half-open socket that never notices it is gone costs one wasted write;
+  // the send path already drops connections on 'error' and 'close'. That is a
+  // far cheaper failure than waking the whole fleet on a schedule.
   const pinger = setInterval(() => {
-    for (const socket of wss.clients) {
-      if (alive.get(socket) === false) {
-        socket.terminate();
-        continue;
-      }
-      alive.set(socket, false);
-      socket.ping();
-    }
+    for (const socket of wss.clients) socket.ping();
   }, PING_INTERVAL_MS);
   pinger.unref();
 

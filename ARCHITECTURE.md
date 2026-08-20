@@ -160,6 +160,8 @@ Rules (fail loudly, per SPEC §2):
 
 ### WebSocket surface
 
+**Keepalive pings, never a reaper.** The server pings open sockets every 30 s to keep the path warm and NEVER terminates one for failing to pong. The standard mark-dead-then-terminate reaper assumes a client that answers pings; the agent side often does not (the Monitor tool's WebSocket may not auto-pong), so the reaper was killing healthy sockets about every minute. Each death arrived on the agent as a 1006 close — a notification, i.e. a full model turn — so an idle switchboard was waking every connected agent on a timer to tell them nothing had happened. A half-open socket costs one wasted write instead; the send path already drops connections on error/close.
+
 - `GET /v1/channels/{name}/ws?token=…&since=N` (HTTP upgrade, `ws` lib).
   On connect: replay messages with seq > N (push-filtered for this agent),
   then stream live. No hello frame — an idle connect wakes nobody.
