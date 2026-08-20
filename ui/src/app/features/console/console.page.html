@@ -47,27 +47,15 @@
         <p class="empty tiny">Nobody has joined yet.</p>
       }
       @for (agent of agents(); track agent.name) {
-        <div class="agent-row">
-          @if (renamingAgent() === agent.name) {
-            <input
-              type="text"
-              class="mono rename"
-              [ngModel]="renameValue()"
-              (ngModelChange)="renameValue.set($event)"
-              name="renameValue"
-              (keydown.enter)="saveRename(agent.name)"
-              (keydown.escape)="renamingAgent.set(null)"
-            />
-          } @else {
-            <span class="pdot" [class.on]="agent.connected"></span>
-            <span class="label mono">{{ agent.name }}</span>
-            <span class="agent-actions">
-              <button type="button" class="ghost tiny" (click)="startRename(agent)" title="Rename">ren</button>
-              <button type="button" class="ghost tiny" (click)="reissue(agent.name)" title="Reissue token">tok</button>
-              <button type="button" class="ghost tiny danger" (click)="deleteAgent(agent.name)" title="Delete">×</button>
-            </span>
-          }
-        </div>
+        <button
+          type="button"
+          class="rail-item"
+          [class.active]="inspectedAgent() === agent.name"
+          (click)="inspectAgent(agent.name)"
+        >
+          <span class="pdot" [class.on]="agent.connected"></span>
+          <span class="label mono">{{ agent.name }}</span>
+        </button>
       }
     </div>
   </nav>
@@ -234,7 +222,57 @@
 
   <!-- ---------------------------------------------------------- inspector -->
   <aside class="inspector">
-    @if (openChannel(); as ch) {
+    @if (inspectedAgent(); as name) {
+      @if (agentByName(name); as agent) {
+        <div class="panel">
+          <h3>Agent</h3>
+          @if (renamingAgent() === agent.name) {
+            <input
+              type="text"
+              class="mono rename"
+              [ngModel]="renameValue()"
+              (ngModelChange)="renameValue.set($event)"
+              name="renameValue"
+              (keydown.enter)="saveRename(agent.name)"
+              (keydown.escape)="renamingAgent.set(null)"
+            />
+            <div class="row">
+              <button type="button" class="primary tiny" (click)="saveRename(agent.name)">Save name</button>
+              <button type="button" class="ghost tiny" (click)="renamingAgent.set(null)">Cancel</button>
+            </div>
+          } @else {
+            <div class="agent-name mono">{{ agent.name }}</div>
+          }
+          <div class="stat">
+            <span>status</span>
+            <span>{{ agent.connected ? 'connected' : 'offline' }}</span>
+          </div>
+          <div class="stat">
+            <span>last seen</span>
+            <span>{{ agent.last_seen_at ? (agent.last_seen_at | relativeTime) : 'never' }}</span>
+          </div>
+          <div class="stat"><span>lines</span><span>{{ agent.channels.length }}</span></div>
+          @if (agent.channels.length > 0) {
+            <div class="chan-chips">
+              @for (c of agent.channels; track c) {
+                <button type="button" class="chip-btn" (click)="openLine(c)">{{ c }}</button>
+              }
+            </div>
+          }
+          <button type="button" class="full" (click)="startRename(agent)">Rename</button>
+          <button type="button" class="full" (click)="reissue(agent.name)" [disabled]="busy() === 'reissue:' + agent.name">
+            Reissue token
+          </button>
+          <button type="button" class="danger full" (click)="deleteAgent(agent.name)" [disabled]="busy() === 'delete:' + agent.name">
+            Delete agent
+          </button>
+          <p class="hint">
+            Reissue keeps the identity and everything it is a member of — paste the new token into that
+            session. Delete frees the name immediately; what it already said stays in the record.
+          </p>
+        </div>
+      }
+    } @else if (openChannel(); as ch) {
       <div class="panel">
         <h3>Members</h3>
         @for (m of ch.members; track m) {

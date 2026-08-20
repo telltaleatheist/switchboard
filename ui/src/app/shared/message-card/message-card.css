@@ -12,9 +12,12 @@
   padding: 0.55rem 0.7rem;
 }
 
+/* Record-only and digest are marked by their edge and their badge, NOT by
+   dimming the words: a message you cannot read is worse than one that shouts.
+   The dashed edge says "this woke nobody" without costing legibility. */
 :host(.quiet) {
-  /* record-only / digest: on the record, not in your face */
-  opacity: 0.62;
+  border-left-style: dashed;
+  background: var(--bg);
 }
 
 :host([data-sender='operator']) {
@@ -27,7 +30,7 @@
   gap: 0.4rem;
   flex-wrap: wrap;
   font-size: 0.72rem;
-  color: var(--text-faint);
+  color: var(--text-dim);
   margin-bottom: 0.25rem;
 }
 
@@ -54,14 +57,20 @@
 }
 
 .subject {
-  font-weight: 500;
+  font-weight: 600;
+  font-size: 0.92rem;
   line-height: 1.4;
+  color: var(--text);
 }
 
+/* Body copy is READ, not skimmed: full-strength text, not the dim token.
+   Hierarchy comes from the subject being heavier, not from the body being
+   faint. */
 .body {
-  margin: 0.1rem 0 0;
-  color: var(--text-dim);
-  font-size: 0.85rem;
+  margin: 0.15rem 0 0;
+  color: var(--text);
+  font-size: 0.88rem;
+  line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
 }

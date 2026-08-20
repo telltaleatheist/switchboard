@@ -154,12 +154,14 @@ export class ConsolePage implements OnInit, OnDestroy {
   // ------------------------------------------------------------- selection
 
   protected openLine(name: string): void {
+    this.inspectedAgent.set(null);
     this.selection.set({ kind: 'channel', name });
     this.resetView();
     this.connect(name);
   }
 
   protected async openArchive(archive: ArchiveSummary): Promise<void> {
+    this.inspectedAgent.set(null);
     this.ws?.close();
     this.ws = null;
     this.wsStatus.set('idle');
@@ -415,6 +417,13 @@ export class ConsolePage implements OnInit, OnDestroy {
 
   // --------------------------------------------------------- agent actions
 
+  /**
+   * Which agent the inspector is showing. Separate from the feed selection:
+   * looking at an agent must not close the line you are reading. Hover-only
+   * action buttons in the rail were unreadable over the names, so the actions
+   * live in the inspector with real labels instead.
+   */
+  protected readonly inspectedAgent = signal<string | null>(null);
   protected readonly renamingAgent = signal<string | null>(null);
   protected readonly renameValue = signal('');
   protected readonly issuedToken = signal<{ agent: string; token: string } | null>(null);
@@ -434,6 +443,7 @@ export class ConsolePage implements OnInit, OnDestroy {
     try {
       await this.api.renameAgent(current, next);
       this.renamingAgent.set(null);
+      this.inspectedAgent.set(next);
       await this.refresh();
     } catch (err) {
       this.loadError.set(err instanceof ApiError ? err.message : 'Failed to rename the agent.');
@@ -473,6 +483,7 @@ export class ConsolePage implements OnInit, OnDestroy {
     this.busy.set(`delete:${name}`);
     try {
       await this.api.deleteAgent(name);
+      this.inspectedAgent.set(null);
       await this.refresh();
     } catch (err) {
       this.loadError.set(err instanceof ApiError ? err.message : 'Failed to delete the agent.');
@@ -509,6 +520,11 @@ export class ConsolePage implements OnInit, OnDestroy {
 
   protected agentByName(name: string): AgentSummary | undefined {
     return this.agents().find((a) => a.name === name);
+  }
+
+  protected inspectAgent(name: string): void {
+    this.inspectedAgent.set(this.inspectedAgent() === name ? null : name);
+    this.renamingAgent.set(null);
   }
 
   protected memberPresence(channel: ChannelSummary, name: string): boolean {
